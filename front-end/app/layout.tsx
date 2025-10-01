@@ -3,6 +3,7 @@ import type { Metadata } from "next"
 import { Inter } from "next/font/google"
 import { Suspense } from "react"
 import "./globals.css"
+import "react-before-after-slider-component/dist/build.css";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -23,7 +24,9 @@ export default function RootLayout({
   return (
     <html lang="pt-BR">
       <body className={`font-sans ${inter.variable}`}>
-        <Suspense fallback={<div>Carregando...</div>}>{children}</Suspense>
+        <Suspense fallback={<div>Carregando...</div>}>
+          {children}
+        </Suspense>
       </body>
     </html>
   )
