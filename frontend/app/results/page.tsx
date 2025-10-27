@@ -3,28 +3,49 @@
 import { useEffect, useState } from "react"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
-import ReactBeforeSliderComponent from "react-before-after-slider-component"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
-import { Loader2, CheckCircle2, XCircle } from "lucide-react"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Loader2, CheckCircle2, XCircle, Package, AlertTriangle } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 
 import { Header } from "@/components/Header"
 import { Footer } from "@/components/Footer"
 import { cn } from "@/lib/utils"
 
-interface ComparisonImage {
+interface ProcessedImage {
   filename: string
-  original_image_data: string
-  processed_image_data: string
+  sha256: string
+  timestamp: string
+  original_url: string
+  areas_url: string
+  pins_url: string
+  boxes_url: string
+  areas_count: number
+  pins_count: number
+  boxes_info: {
+    total_boxes: number
+    empty_boxes: number
+    single_pin_boxes: number
+    multiple_pins_boxes: number
+    boxes: Array<{
+      x: number
+      y: number
+      width: number
+      height: number
+      pins_count: number
+      status: "empty" | "single" | "multiple"
+    }>
+  }
 }
 
 export default function ResultsPage() {
-  const [images, setImages] = useState<ComparisonImage[]>([])
+  const [images, setImages] = useState<ProcessedImage[]>([])
   const [selectedImageIndex, setSelectedImageIndex] = useState<number>(0)
+  const [selectedView, setSelectedView] = useState<string>("boxes")
   const [loteName, setLoteName] = useState("")
   const [loteDescription, setLoteDescription] = useState("")
   const [isLoading, setIsLoading] = useState(true)
@@ -35,7 +56,7 @@ export default function ResultsPage() {
   const router = useRouter()
 
   useEffect(() => {
-  const storedImages = sessionStorage.getItem("processedImages")
+    const storedImages = sessionStorage.getItem("processedImages")
     
     if (!storedImages) {
       const usingGlobalMemory = sessionStorage.getItem("usingGlobalMemory")
@@ -58,7 +79,7 @@ export default function ResultsPage() {
 
     if (storedImages) {
       try {
-        const parsedImages: ComparisonImage[] = JSON.parse(storedImages)
+        const parsedImages: ProcessedImage[] = JSON.parse(storedImages)
         console.log("Imagens carregadas do sessionStorage:", parsedImages.length)
         if (parsedImages.length > 0) {
           setImages(parsedImages)
@@ -96,8 +117,15 @@ export default function ResultsPage() {
         status: "aprovado",
         images: images.map(img => ({
           filename: img.filename,
-          original_image_data: img.original_image_data,
-          processed_image_data: img.processed_image_data
+          sha256: img.sha256,
+          timestamp: img.timestamp,
+          original_url: img.original_url,
+          areas_url: img.areas_url,
+          pins_url: img.pins_url,
+          boxes_url: img.boxes_url,
+          areas_count: img.areas_count,
+          pins_count: img.pins_count,
+          boxes_info: img.boxes_info
         })),
         totalImages: images.length,
         createdAt: new Date().toISOString()
@@ -105,7 +133,7 @@ export default function ResultsPage() {
 
       console.log("Lote aprovado:", loteData)
       
-      // @TODO: refatorar para o envio da para API de cadastro do lote:
+      // @TODO: refatorar para o envio para API de cadastro do lote:
       // const response = await fetch(`${API_URL}/lotes/aprovar`, {
       //   method: "POST",
       //   headers: { "Content-Type": "application/json" },
@@ -116,6 +144,7 @@ export default function ResultsPage() {
       
       setTimeout(() => {
         sessionStorage.removeItem("processedImages")
+        sessionStorage.removeItem("usingGlobalMemory")
         router.push("/")
       }, 2000)
 
@@ -130,15 +159,24 @@ export default function ResultsPage() {
   const handleRejeitarLote = () => {
     if (confirm("Tem certeza que deseja rejeitar este lote? As imagens processadas serão descartadas.")) {
       sessionStorage.removeItem("processedImages")
+      sessionStorage.removeItem("usingGlobalMemory")
       router.push("/")
     }
   }
 
-
-
   const toggleTheme = () => {
     setIsDarkMode(!isDarkMode)
     document.documentElement.classList.toggle("dark")
+  }
+
+  const getOccupancyRate = (boxesInfo: ProcessedImage["boxes_info"]) => {
+    if (!boxesInfo || boxesInfo.total_boxes === 0) return 0
+    return ((boxesInfo.single_pin_boxes + boxesInfo.multiple_pins_boxes) / boxesInfo.total_boxes * 100).toFixed(1)
+  }
+
+  const getEfficiencyRate = (boxesInfo: ProcessedImage["boxes_info"]) => {
+    if (!boxesInfo || boxesInfo.total_boxes === 0) return 0
+    return (boxesInfo.single_pin_boxes / boxesInfo.total_boxes * 100).toFixed(1)
   }
 
   if (isLoading || !selectedImage) {
@@ -166,137 +204,236 @@ export default function ResultsPage() {
           </Alert>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          
-          {/* Coluna da Esquerda: Visualizador com Slider */}
-          <div className="lg:col-span-2">
-            <Card className="h-full">
-              <CardHeader>
-                <CardTitle>Análise de Imagem</CardTitle>
-                <CardDescription>
-                  Arraste o slider para comparar o antes e o depois.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="aspect-video w-full rounded-lg overflow-hidden border bg-muted">
-                  <ReactBeforeSliderComponent
-                    firstImage={{ imageUrl: selectedImage.original_image_data }}
-                    secondImage={{ imageUrl: selectedImage.processed_image_data }}
-                    withResizeFeel={true}
-                  />
-                </div>
-                <p 
-                  className="text-center text-sm text-muted-foreground mt-4 truncate px-4" 
-                  title={selectedImage.filename}
-                >
-                  <strong>Arquivo:</strong> {selectedImage.filename}
-                </p>
-                <p className="text-center text-xs text-muted-foreground mt-1">
-                  Imagem {selectedImageIndex + 1} de {images.length}
-                </p>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Coluna da Direita: Galeria e Formulário */}
-          <div className="flex flex-col justify-between gap-8">
-
-            {/* Seção da Galeria */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle>Imagens Processadas</CardTitle>
+                <CardTitle>Resultados do Processamento</CardTitle>
                 <CardDescription>
-                  {images.length} {images.length === 1 ? 'imagem' : 'imagens'} no lote
+                  Imagem {selectedImageIndex + 1} de {images.length}: {selectedImage.filename}
                 </CardDescription>
               </CardHeader>
-              <CardContent>
-                <div className="flex gap-2 max-h-[400px] overflow-x-auto pr-2 scrollbar-thin">
-                  {images.map((image, index) => (
-                    <div
-                      key={index}
-                      className={cn(
-                        "aspect-square rounded-md overflow-hidden cursor-pointer border-2 transition-all",
-                        selectedImageIndex === index 
-                          ? "border-primary shadow-lg ring-2 ring-primary/20" 
-                          : "border-transparent hover:border-primary/50"
-                      )}
-                      onClick={() => setSelectedImageIndex(index)}
+              <CardContent className="space-y-4">
+                <div className="space-y-4">
+                  <Select value={selectedView} onValueChange={setSelectedView}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Selecione a visualização" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="original">Original</SelectItem>
+                      <SelectItem value="areas">Áreas Detectadas</SelectItem>
+                      <SelectItem value="pins">Pins Detectados</SelectItem>
+                      <SelectItem value="boxes">Análise de Caixas</SelectItem>
+                    </SelectContent>
+                  </Select>
+
+                  <div className="relative aspect-video bg-muted rounded-lg overflow-hidden">
+                    <Image
+                      src={
+                        selectedView === "original" ? selectedImage.original_url :
+                        selectedView === "areas" ? selectedImage.areas_url :
+                        selectedView === "pins" ? selectedImage.pins_url :
+                        selectedImage.boxes_url
+                      }
+                      alt={
+                        selectedView === "original" ? "Imagem Original" :
+                        selectedView === "areas" ? "Áreas Detectadas" :
+                        selectedView === "pins" ? "Pins Detectados" :
+                        "Análise de Caixas"
+                      }
+                      fill
+                      className="object-contain"
+                      unoptimized
+                    />
+                  </div>
+
+                  {selectedView === "areas" && (
+                    <p className="text-sm text-muted-foreground">
+                      {selectedImage.areas_count} áreas detectadas
+                    </p>
+                  )}
+
+                  {selectedView === "pins" && (
+                    <p className="text-sm text-muted-foreground">
+                      {selectedImage.pins_count} pins detectados
+                    </p>
+                  )}
+
+                  {selectedView === "boxes" && (
+                    <>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div className="text-center p-3 bg-gray-100 dark:bg-gray-800 rounded">
+                          <div className="text-2xl font-bold">{selectedImage.boxes_info?.total_boxes || 0}</div>
+                          <div className="text-xs text-muted-foreground">Total</div>
+                        </div>
+                        <div className="text-center p-3 bg-red-100 dark:bg-red-900/30 rounded">
+                          <div className="text-2xl font-bold text-red-600 dark:text-red-400">
+                            {selectedImage.boxes_info?.empty_boxes || 0}
+                          </div>
+                          <div className="text-xs text-muted-foreground">Vazias</div>
+                        </div>
+                        <div className="text-center p-3 bg-green-100 dark:bg-green-900/30 rounded">
+                          <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+                            {selectedImage.boxes_info?.single_pin_boxes || 0}
+                          </div>
+                          <div className="text-xs text-muted-foreground">1 Pin</div>
+                        </div>
+                        <div className="text-center p-3 bg-orange-100 dark:bg-orange-900/30 rounded">
+                          <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">
+                            {selectedImage.boxes_info?.multiple_pins_boxes || 0}
+                          </div>
+                          <div className="text-xs text-muted-foreground">Múltiplos</div>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">Taxa de Ocupação:</span>
+                          <span className="font-semibold">{getOccupancyRate(selectedImage.boxes_info)}%</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">Eficiência (1 pin):</span>
+                          <span className="font-semibold">{getEfficiencyRate(selectedImage.boxes_info)}%</span>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {images.length > 1 && (
+                  <div className="flex justify-between items-center pt-4 border-t">
+                    <Button
+                      variant="outline"
+                      onClick={() => setSelectedImageIndex(Math.max(0, selectedImageIndex - 1))}
+                      disabled={selectedImageIndex === 0}
                     >
-                      <Image
-                        src={image.processed_image_data}
-                        alt={`Thumbnail de ${image.filename}`}
-                        width={100}
-                        height={100}
-                        className="w-full h-full object-cover"
-                        unoptimized
-                      />
+                      ← Anterior
+                    </Button>
+                    <span className="text-sm text-muted-foreground">
+                      {selectedImageIndex + 1} / {images.length}
+                    </span>
+                    <Button
+                      variant="outline"
+                      onClick={() => setSelectedImageIndex(Math.min(images.length - 1, selectedImageIndex + 1))}
+                      disabled={selectedImageIndex === images.length - 1}
+                    >
+                      Próxima →
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {selectedImage.boxes_info && selectedImage.boxes_info.empty_boxes > selectedImage.boxes_info.total_boxes * 0.3 && (
+              <Alert variant="destructive">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription>
+                  Atenção: Mais de 30% das caixas estão vazias nesta imagem.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {selectedImage.boxes_info && selectedImage.boxes_info.multiple_pins_boxes > 0 && (
+              <Alert>
+                <Package className="h-4 w-4" />
+                <AlertDescription>
+                  {selectedImage.boxes_info.multiple_pins_boxes} caixa(s) com múltiplos pins detectada(s).
+                </AlertDescription>
+              </Alert>
+            )}
+          </div>
+
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Resumo do Lote</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="text-center p-3 bg-muted rounded">
+                    <div className="text-2xl font-bold">{images.length}</div>
+                    <div className="text-xs text-muted-foreground">Imagens</div>
+                  </div>
+                  <div className="text-center p-3 bg-muted rounded">
+                    <div className="text-2xl font-bold">
+                      {images.reduce((sum, img) => sum + (img.boxes_info?.total_boxes || 0), 0)}
                     </div>
-                  ))}
+                    <div className="text-xs text-muted-foreground">Caixas Total</div>
+                  </div>
+                  <div className="text-center p-3 bg-muted rounded">
+                    <div className="text-2xl font-bold">
+                      {images.reduce((sum, img) => sum + img.pins_count, 0)}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Pins Total</div>
+                  </div>
+                  <div className="text-center p-3 bg-red-100 dark:bg-red-900/30 rounded">
+                    <div className="text-2xl font-bold text-red-600 dark:text-red-400">
+                      {images.reduce((sum, img) => sum + (img.boxes_info?.empty_boxes || 0), 0)}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Vazias Total</div>
+                  </div>
                 </div>
               </CardContent>
             </Card>
-            
-            {/* Seção do Formulário */}
-            <Card className="h-full">
+
+            <Card>
               <CardHeader>
                 <CardTitle>Informações do Lote</CardTitle>
-                <CardDescription>
-                  Preencha os dados e aprove ou rejeite o lote.
-                </CardDescription>
               </CardHeader>
-              <CardContent className="h-full flex flex-col justify-between gap-4">
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="lote-name">
-                      Nome do Lote <span className="text-destructive">*</span>
-                    </Label>
-                    <Input 
-                      id="lote-name" 
-                      placeholder="Ex: Lote 0001" 
-                      value={loteName}
-                      onChange={(e) => setLoteName(e.target.value)}
-                      disabled={isSaving || saveSuccess}
-                      required
-                    />
-                  </div>
-                
-                  <div className="space-y-2">
-                    <Label htmlFor="lote-description">Descrição</Label>
-                    <Textarea
-                      id="lote-description"
-                      placeholder="Adicione observações importantes sobre este lote."
-                      value={loteDescription}
-                      onChange={(e) => setLoteDescription(e.target.value)}
-                      rows={8}
-                      disabled={isSaving || saveSuccess}
-                    />
-                  </div>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="lote-name">Nome do Lote *</Label>
+                  <Input
+                    id="lote-name"
+                    placeholder="Ex: Lote A-001"
+                    value={loteName}
+                    onChange={(e) => setLoteName(e.target.value)}
+                    disabled={isSaving}
+                  />
                 </div>
-
-                <div className="pt-2 space-y-2">
-                  <Button 
-                    onClick={handleAprovarLote} 
-                    className="w-full bg-green-600 hover:bg-green-700"
-                    disabled={isSaving || saveSuccess || !loteName.trim()}
-                  >
-                    {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    <CheckCircle2 className="w-4 h-4 mr-2" />
-                    {isSaving ? "Aprovando..." : "Aprovar Lote"}
-                  </Button>
-
-                  <Button 
-                    onClick={handleRejeitarLote} 
-                    variant="destructive" 
-                    className="w-full"
-                    disabled={isSaving || saveSuccess}
-                  >
-                    <XCircle className="w-4 h-4 mr-2" />
-                    Rejeitar Lote
-                  </Button>
+                <div className="space-y-2">
+                  <Label htmlFor="lote-description">Descrição</Label>
+                  <Textarea
+                    id="lote-description"
+                    placeholder="Observações sobre o lote..."
+                    value={loteDescription}
+                    onChange={(e) => setLoteDescription(e.target.value)}
+                    disabled={isSaving}
+                    rows={4}
+                  />
                 </div>
               </CardContent>
             </Card>
 
+            <Card>
+              <CardContent className="pt-6 space-y-3">
+                <Button
+                  className="w-full"
+                  onClick={handleAprovarLote}
+                  disabled={isSaving || !loteName.trim()}
+                >
+                  {isSaving ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Salvando...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="mr-2 h-4 w-4" />
+                      Aprovar Lote
+                    </>
+                  )}
+                </Button>
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={handleRejeitarLote}
+                  disabled={isSaving}
+                >
+                  <XCircle className="mr-2 h-4 w-4" />
+                  Rejeitar Lote
+                </Button>
+              </CardContent>
+            </Card>
           </div>
         </div>
       </main>

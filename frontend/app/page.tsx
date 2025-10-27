@@ -18,10 +18,37 @@ interface UploadedFile {
   preview: string
 }
 
+interface UploadResponse {
+  filename: string
+  storage_path: string
+  sha256: string
+  timestamp: string
+}
+
 interface ProcessedImage {
   filename: string
-  original_image_data: string
-  processed_image_data: string
+  sha256: string
+  timestamp: string
+  original_url: string
+  areas_url: string
+  pins_url: string
+  boxes_url: string
+  areas_count: number
+  pins_count: number
+  boxes_info: {
+    total_boxes: number
+    empty_boxes: number
+    single_pin_boxes: number
+    multiple_pins_boxes: number
+    boxes: Array<{
+      x: number
+      y: number
+      width: number
+      height: number
+      pins_count: number
+      status: "empty" | "single" | "multiple"
+    }>
+  }
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"
@@ -59,95 +86,75 @@ export default function HawkEyePage() {
     return null
   }
 
-  const processFiles = useCallback((newFiles: File[]) => {
+  const addFiles = useCallback((newFiles: File[]) => {
+    const remainingSlots = MAX_FILES - files.length
+    const filesToAdd = newFiles.slice(0, remainingSlots)
+    
     const validFiles: UploadedFile[] = []
     const errors: string[] = []
-
-    newFiles.forEach((file) => {
-      const validationError = validateFile(file)
-      if (validationError) {
-        errors.push(validationError)
+    
+    filesToAdd.forEach((file) => {
+      const error = validateFile(file)
+      if (error) {
+        errors.push(error)
       } else {
-        const isDuplicate = files.some(f => 
-          f.file.name === file.name && 
-          f.file.size === file.size &&
-          f.file.type === file.type
-        )
-        if (!isDuplicate) {
-          validFiles.push({
-            id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            file,
-            preview: URL.createObjectURL(file),
-          })
-        } else {
-          errors.push(`${file.name} já foi adicionado`)
-        }
+        validFiles.push({
+          id: Math.random().toString(36).substring(7),
+          file,
+          preview: URL.createObjectURL(file)
+        })
       }
     })
-
+    
+    if (errors.length > 0) {
+      setError(errors.join('\n'))
+      setTimeout(() => setError(null), 5000)
+    }
+    
     if (validFiles.length > 0) {
       setFiles((prev) => [...prev, ...validFiles])
     }
-
-    if (errors.length > 0) {
-      setError(errors.join("; "))
-    } else {
-      setError(null)
+    
+    if (newFiles.length > remainingSlots) {
+      setError(`Apenas ${remainingSlots} imagens foram adicionadas. Limite de ${MAX_FILES} imagens atingido.`)
+      setTimeout(() => setError(null), 5000)
     }
-  }, [files])
+  }, [files.length])
 
-  const handleDragOver = useCallback((e: React.DragEvent) => {
+  const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      addFiles(Array.from(e.target.files))
+    }
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault()
     setIsDragOver(true)
-  }, [])
+  }
 
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
+  const handleDragLeave = (e: React.DragEvent) => {
     e.preventDefault()
     setIsDragOver(false)
-  }, [])
+  }
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
+  const handleDrop = (e: React.DragEvent) => {
     e.preventDefault()
     setIsDragOver(false)
-    setError(null)
-    const droppedFiles = Array.from(e.dataTransfer.files)
-    if (droppedFiles.length + files.length > MAX_FILES) {
-      setError(`Máximo de ${MAX_FILES} imagens permitidas. Você tentou adicionar ${droppedFiles.length} imagens, mas só há espaço para ${MAX_FILES - files.length}`)
-      return
+    if (e.dataTransfer.files) {
+      addFiles(Array.from(e.dataTransfer.files))
     }
-    processFiles(droppedFiles)
-  }, [files.length, processFiles])
+  }
 
-  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    setError(null)
-    const selectedFiles = Array.from(e.target.files || [])
-    if (selectedFiles.length + files.length > MAX_FILES) {
-      setError(`Máximo de ${MAX_FILES} imagens permitidas. Você tentou adicionar ${selectedFiles.length} imagens, mas só há espaço para ${MAX_FILES - files.length}`)
-      e.target.value = ""
-      return
-    }
-    processFiles(selectedFiles)
-    e.target.value = ""
-  }, [files.length, processFiles])
-
-  const removeFile = useCallback((id: string) => {
+  const removeFile = (id: string) => {
     setFiles((prev) => {
+      const updated = prev.filter((f) => f.id !== id)
       const fileToRemove = prev.find((f) => f.id === id)
       if (fileToRemove) {
         URL.revokeObjectURL(fileToRemove.preview)
       }
-      return prev.filter((f) => f.id !== id)
+      return updated
     })
-    setError(null)
-  }, [])
-
-  const removeAllFiles = useCallback(() => {
-    if (confirm(`Deseja remover todas as ${files.length} imagens?`)) {
-      files.forEach((file) => URL.revokeObjectURL(file.preview))
-      setFiles([])
-      setError(null)
-    }
-  }, [files])
+  }
 
   const openModal = (index: number) => {
     setSelectedImageIndex(index)
@@ -210,31 +217,47 @@ export default function HawkEyePage() {
     document.documentElement.classList.toggle("dark")
   }
 
-  const processBatch = async (batch: UploadedFile[]) => {
+  const uploadBatch = async (files: File[]): Promise<UploadResponse[]> => {
     const formData = new FormData()
-    
-    batch.forEach((uploadedFile) => {
-      formData.append("files", uploadedFile.file)
+    files.forEach((file) => {
+      formData.append("files", file)
     })
 
-    const response = await fetch(`${API_URL}/process-images/`, {
+    const response = await fetch(`${API_URL}/upload-batch/`, {
       method: "POST",
       body: formData,
     })
 
     if (!response.ok) {
-      let errorMessage = "Falha ao processar as imagens. Tente novamente."
-      try {
-        const errorData = await response.json()
-        errorMessage = errorData.detail || errorMessage
-      } catch {
-        errorMessage = `Erro ${response.status}: ${response.statusText}`
-      }
-      throw new Error(errorMessage)
+      const errorData = await response.json().catch(() => ({}))
+      throw new Error(errorData.detail || `Erro ${response.status}: ${response.statusText}`)
     }
 
     const data = await response.json()
-    return data.processed_images
+    return data.files
+  }
+
+  const processImages = async (uploadedImages: UploadResponse[]): Promise<ProcessedImage[]> => {
+    const response = await fetch(`${API_URL}/process-images/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        images: uploadedImages.map(img => ({
+          filename: img.filename,
+          storage_path: img.storage_path,
+          sha256: img.sha256,
+          timestamp: img.timestamp
+        }))
+      }),
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      throw new Error(errorData.detail || `Erro ${response.status}: ${response.statusText}`)
+    }
+
+    const data = await response.json()
+    return data.results
   }
 
   const handleContinue = async () => {
@@ -242,44 +265,28 @@ export default function HawkEyePage() {
 
     setIsLoading(true)
     setError(null)
-    setUploadProgress("Iniciando processamento...")
+    setUploadProgress("Iniciando upload do lote...")
 
     try {
-      const BATCH_SIZE = 10
-      const batches: UploadedFile[][] = []
+      // 1. Upload de todas as imagens em um único lote
+      const uploadResults = await uploadBatch(files.map(f => f.file))
+      console.log(`✅ ${uploadResults.length} imagens enviadas para o Supabase com timestamp único`)
+      console.log(`📅 Timestamp do lote: ${uploadResults[0]?.timestamp}`)
+
+      // 2. Processar imagens
+      setUploadProgress("Processando imagens...")
       
-      for (let i = 0; i < files.length; i += BATCH_SIZE) {
-        batches.push(files.slice(i, i + BATCH_SIZE))
+      const processedResults = await processImages(uploadResults)
+      
+      if (!processedResults || !Array.isArray(processedResults)) {
+        throw new Error("Resposta da API em formato inválido")
       }
 
-      console.log(`Processando ${files.length} imagens em ${batches.length} lote(s)...`)
+      globalProcessedImages = processedResults
+      
+      console.log(`✅ Total de ${globalProcessedImages.length} imagens processadas com sucesso`)
 
-      globalProcessedImages = []
-
-      for (let i = 0; i < batches.length; i++) {
-        setUploadProgress(`Processando lote ${i + 1} de ${batches.length}...`)
-        
-  const batchResults = await processBatch(batches[i])
-        
-        if (!batchResults || !Array.isArray(batchResults)) {
-          throw new Error("Resposta da API em formato inválido")
-        }
-
-        const invalidImages = batchResults.filter(
-          (img: ProcessedImage) => !img.original_image_data || !img.processed_image_data
-        )
-        
-        if (invalidImages.length > 0) {
-          throw new Error(`${invalidImages.length} imagem(ns) não processada(s) corretamente`)
-        }
-
-        globalProcessedImages = [...globalProcessedImages, ...batchResults]
-        
-        console.log(`Lote ${i + 1}/${batches.length} processado: ${batchResults.length} imagens`)
-      }
-
-      console.log(`Total de ${globalProcessedImages.length} imagens processadas com sucesso`)
-
+      // 3. Salvar no sessionStorage
       try {
         sessionStorage.setItem("processedImages", JSON.stringify(globalProcessedImages))
         console.log("Dados salvos no sessionStorage")
@@ -338,115 +345,120 @@ export default function HawkEyePage() {
                 <p className="text-muted-foreground text-lg mb-2">ou clique para selecionar arquivos</p>
                 <p className="text-sm text-muted-foreground mb-1">Máximo de {MAX_FILES} imagens</p>
                 <p className="text-xs text-muted-foreground">Formatos aceitos: JPEG, PNG, WEBP (máx. 10MB cada)</p>
-                <input 
-                  id="file-input" 
-                  type="file" 
-                  multiple 
-                  accept="image/jpeg,image/jpg,image/png,image/webp" 
-                  onChange={handleFileSelect} 
-                  className="hidden" 
+                <input
+                  id="file-input"
+                  type="file"
+                  multiple
+                  accept="image/jpeg,image/jpg,image/png,image/webp"
+                  onChange={handleFileInput}
+                  className="hidden"
                 />
               </div>
             ) : (
-              <div className="space-y-6">
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 max-h-[50vh] overflow-y-auto pr-2">
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                   {files.map((file, index) => (
-                    <div
-                      key={file.id}
-                      className="group relative aspect-square overflow-hidden rounded-lg cursor-pointer"
-                      onClick={() => openModal(index)}
-                    >
-                      <Image
-                        src={file.preview}
-                        alt={file.file.name}
-                        width={400}
-                        height={400}
-                        className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                        unoptimized
-                      />
-                      <button
+                    <div key={file.id} className="relative group">
+                      <div 
+                        className="aspect-square rounded-lg overflow-hidden bg-muted cursor-pointer"
+                        onClick={() => openModal(index)}
+                      >
+                        <Image
+                          src={file.preview}
+                          alt={file.file.name}
+                          width={200}
+                          height={200}
+                          className="w-full h-full object-cover transition-transform group-hover:scale-105"
+                          unoptimized
+                        />
+                      </div>
+                      <Button
+                        size="icon"
+                        variant="destructive"
+                        className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
                         onClick={(e) => {
                           e.stopPropagation()
                           removeFile(file.id)
                         }}
-                        className="absolute top-2 right-2 p-1 bg-destructive text-destructive-foreground rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:scale-110"
-                        aria-label="Remover imagem"
                       >
-                        <X className="w-4 h-4" />
-                      </button>
-                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-                      <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/60 to-transparent">
-                        <p className="text-xs font-medium text-white truncate">{file.file.name}</p>
-                        <p className="text-xs text-white/70">{(file.file.size / 1024 / 1024).toFixed(2)} MB</p>
-                      </div>
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                      <p className="mt-2 text-xs text-muted-foreground truncate">{file.file.name}</p>
                     </div>
                   ))}
+                  
+                  {files.length < MAX_FILES && (
+                    <div
+                      className="aspect-square rounded-lg border-2 border-dashed border-border flex items-center justify-center cursor-pointer hover:border-primary/50 transition-colors"
+                      onClick={() => document.getElementById("file-input")?.click()}
+                    >
+                      <Upload className="w-8 h-8 text-muted-foreground" />
+                      <input
+                        id="file-input"
+                        type="file"
+                        multiple
+                        accept="image/jpeg,image/jpg,image/png,image/webp"
+                        onChange={handleFileInput}
+                        className="hidden"
+                      />
+                    </div>
+                  )}
                 </div>
-                <div className="flex items-center justify-between">
-                  <Button 
-                    variant="outline" 
-                    onClick={() => document.getElementById("file-input-2")?.click()} 
-                    className="border-dashed"
-                    disabled={files.length >= MAX_FILES || isLoading}
-                  >
-                    <Upload className="w-4 h-4 mr-2" />
-                    Adicionar mais {files.length >= MAX_FILES && `(${MAX_FILES}/${MAX_FILES})`}
-                  </Button>
-                  <input 
-                    id="file-input-2" 
-                    type="file" 
-                    multiple 
-                    accept="image/jpeg,image/jpg,image/png,image/webp" 
-                    onChange={handleFileSelect} 
-                    className="hidden"
-                  />
-                  <Button 
-                    variant="ghost" 
-                    onClick={removeAllFiles} 
-                    className="text-destructive hover:text-destructive"
-                    disabled={isLoading}
-                  >
-                    <Trash2 className="w-4 h-4 mr-2" />
-                    Remover todas
-                  </Button>
-                </div>
+
+                {error && (
+                  <Alert variant="destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription className="whitespace-pre-line">{error}</AlertDescription>
+                  </Alert>
+                )}
               </div>
             )}
           </CardContent>
-          <CardFooter className="border-t pt-6 flex flex-col items-stretch gap-4">
-            <Button
-              size="lg"
-              className="w-full"
-              disabled={files.length === 0 || isLoading}
-              onClick={handleContinue}
-            >
-              {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {isLoading 
-                ? uploadProgress || "Processando..." 
-                : `Continuar com ${files.length} ${files.length === 1 ? 'imagem' : 'imagens'}`
-              }
-            </Button>
-            {error && (
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
-            {isLoading && (
-              <p className="text-sm text-center text-muted-foreground">
-                Isso pode levar alguns minutos para muitas imagens...
-              </p>
-            )}
-          </CardFooter>
+          
+          {files.length > 0 && (
+            <CardFooter className="flex flex-col sm:flex-row gap-3">
+              <Button 
+                variant="outline" 
+                className="w-full sm:w-auto"
+                onClick={() => {
+                  files.forEach((file) => URL.revokeObjectURL(file.preview))
+                  setFiles([])
+                }}
+                disabled={isLoading}
+              >
+                Limpar Tudo
+              </Button>
+              <Button 
+                className="w-full sm:flex-1" 
+                onClick={handleContinue}
+                disabled={isLoading || files.length === 0}
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    {uploadProgress || "Processando..."}
+                  </>
+                ) : (
+                  "Continuar"
+                )}
+              </Button>
+            </CardFooter>
+          )}
         </Card>
       </main>
 
-      {isModalOpen && selectedImageIndex !== null && files[selectedImageIndex] && (
-        <div 
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
-          onClick={closeModal}
-        >
-          <div className="relative w-full flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+      {isModalOpen && selectedImageIndex !== null && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+          <Button
+            size="icon"
+            variant="ghost"
+            className="absolute top-4 right-4 text-white hover:bg-white/20"
+            onClick={closeModal}
+          >
+            <X className="w-6 h-6" />
+          </Button>
+          
+          <div className="flex items-center justify-between w-full max-w-7xl gap-4">
             <div className="absolute left-4 z-10 md:relative md:left-0">
               <Button 
                 size="icon" 
