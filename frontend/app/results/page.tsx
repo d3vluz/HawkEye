@@ -42,59 +42,46 @@ interface ProcessedImage {
   }
 }
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"
+
 export default function ResultsPage() {
   const [images, setImages] = useState<ProcessedImage[]>([])
   const [selectedImageIndex, setSelectedImageIndex] = useState<number>(0)
   const [selectedView, setSelectedView] = useState<string>("boxes")
-  const [loteName, setLoteName] = useState("")
-  const [loteDescription, setLoteDescription] = useState("")
+  const [loteName, setLoteName] = useState<string>("")
+  const [loteDescription, setLoteDescription] = useState<string>("")
+  const [isDarkMode, setIsDarkMode] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
-  const [isDarkMode, setIsDarkMode] = useState(false)
-  
+  const [saveError, setSaveError] = useState<string | null>(null)
+
   const router = useRouter()
 
   useEffect(() => {
-    const storedImages = sessionStorage.getItem("processedImages")
-    
-    if (!storedImages) {
-      const usingGlobalMemory = sessionStorage.getItem("usingGlobalMemory")
-      if (usingGlobalMemory === "true") {
-        import("@/app/page").then((module) => {
-          const globalImages = module.getGlobalProcessedImages()
-          if (globalImages && globalImages.length > 0) {
-            console.log("Carregando imagens da memória global:", globalImages.length)
-            setImages(globalImages)
-            setIsLoading(false)
-          } else {
-            router.replace("/")
-          }
-        }).catch(() => {
-          router.replace("/")
-        })
-        return
-      }
-    }
-
-    if (storedImages) {
+    const loadData = () => {
       try {
-        const parsedImages: ProcessedImage[] = JSON.parse(storedImages)
-        console.log("Imagens carregadas do sessionStorage:", parsedImages.length)
-        if (parsedImages.length > 0) {
-          setImages(parsedImages)
+        const savedData = sessionStorage.getItem("processedImages")
+        const usingGlobal = sessionStorage.getItem("usingGlobalMemory")
+
+        if (savedData) {
+          const parsedData = JSON.parse(savedData)
+          setImages(parsedData)
+        } else if (usingGlobal === "true" && (window as any).globalProcessedImages) {
+          setImages((window as any).globalProcessedImages)
         } else {
-          router.replace("/")
+          router.push("/")
+          return
         }
       } catch (error) {
-        console.error("Erro ao parsear as imagens do sessionStorage:", error)
-        router.replace("/")
+        console.error("Erro ao carregar dados:", error)
+        router.push("/")
+      } finally {
+        setIsLoading(false)
       }
-    } else {
-      router.replace("/")
     }
 
-    setIsLoading(false)
+    loadData()
   }, [router])
   
   const selectedImage = images[selectedImageIndex]
@@ -107,60 +94,163 @@ export default function ResultsPage() {
 
     setIsSaving(true)
     setSaveSuccess(false)
+    setSaveError(null)
 
     try {
-      await new Promise(resolve => setTimeout(resolve, 1500))
+      // Preparar dados para API
+      const capturesData = images.map(img => {
+        // Extrair path relativo removendo a URL base do Supabase
+        const extractPath = (url: string) => {
+          const parts = url.split('/pipeline-temp/')
+          return parts.length > 1 ? parts[1] : url
+        }
 
-      const loteData = {
-        loteName,
-        loteDescription,
-        status: "aprovado",
-        images: images.map(img => ({
+        // Calcular grid_row e grid_col baseado no índice da box
+        const compartments = img.boxes_info.boxes.map((box, index) => {
+          const cols = Math.ceil(Math.sqrt(img.boxes_info.total_boxes))
+          return {
+            grid_row: Math.floor(index / cols),
+            grid_col: index % cols,
+            bbox_x: box.x,
+            bbox_y: box.y,
+            bbox_width: box.width,
+            bbox_height: box.height,
+            pins_count: box.pins_count,
+            is_valid: box.status === "single",
+            has_defect: box.status !== "single"
+          }
+        })
+
+        // Calcular defeitos corretamente
+        const emptyBoxes = img.boxes_info.empty_boxes || 0
+        const multipleBoxes = img.boxes_info.multiple_pins_boxes || 0
+        const totalDefects = emptyBoxes + multipleBoxes
+        
+        // Uma captura é válida se NÃO tiver defeitos
+        const isValid = totalDefects === 0
+
+        return {
           filename: img.filename,
           sha256: img.sha256,
-          timestamp: img.timestamp,
-          original_url: img.original_url,
-          areas_url: img.areas_url,
-          pins_url: img.pins_url,
-          boxes_url: img.boxes_url,
-          areas_count: img.areas_count,
-          pins_count: img.pins_count,
-          boxes_info: img.boxes_info
-        })),
-        totalImages: images.length,
-        createdAt: new Date().toISOString()
+          original_uri: extractPath(img.original_url),
+          processed_uri: extractPath(img.boxes_url),
+          processed_areas_uri: extractPath(img.areas_url),
+          processed_pins_uri: extractPath(img.pins_url),
+          processed_shaft_uri: extractPath(img.boxes_url),
+          is_valid: isValid,
+          areas_detected: img.areas_count,
+          pins_detected: img.pins_count,
+          defects_count: totalDefects,
+          has_missing_pins: emptyBoxes > 0,
+          has_extra_pins: multipleBoxes > 0,
+          has_damaged_pins: false,
+          has_wrong_color_pins: false,
+          has_structure_damage: false,
+          compartments: compartments
+        }
+      })
+
+      const requestData = {
+        name: loteName,
+        description: loteDescription,
+        captures: capturesData
       }
 
-      console.log("Lote aprovado:", loteData)
-      
-      // @TODO: refatorar para o envio para API de cadastro do lote:
-      // const response = await fetch(`${API_URL}/lotes/aprovar`, {
-      //   method: "POST",
-      //   headers: { "Content-Type": "application/json" },
-      //   body: JSON.stringify(loteData)
-      // })
+      console.log("📤 Enviando lote para aprovação:")
+      console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+      console.log("📦 Nome do Lote:", loteName)
+      console.log("📝 Descrição:", loteDescription)
+      console.log("🖼️  Total de Captures:", capturesData.length)
+      console.log("\n📊 Resumo de Defeitos por Capture:")
+      capturesData.forEach((capture, index) => {
+        console.log(`\n  Imagem ${index + 1}: ${capture.filename}`)
+        console.log(`    ✓ Válida: ${capture.is_valid ? '✅ Sim' : '❌ Não'}`)
+        console.log(`    📍 Áreas detectadas: ${capture.areas_detected}`)
+        console.log(`    📌 Pins detectados: ${capture.pins_detected}`)
+        console.log(`    ⚠️  Total de defeitos: ${capture.defects_count}`)
+        console.log(`    🔴 Missing pins: ${capture.has_missing_pins ? 'Sim' : 'Não'}`)
+        console.log(`    🟠 Extra pins: ${capture.has_extra_pins ? 'Sim' : 'Não'}`)
+        console.log(`    📦 Compartimentos: ${capture.compartments.length}`)
+        console.log(`    ├─ Válidos: ${capture.compartments.filter(c => c.is_valid).length}`)
+        console.log(`    └─ Com defeito: ${capture.compartments.filter(c => c.has_defect).length}`)
+      })
+      console.log("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+      const response = await fetch(`${API_URL}/api/batches/create`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestData)
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.detail || `Erro ${response.status}: ${response.statusText}`)
+      }
+
+      const result = await response.json()
+      console.log("✅ Lote aprovado com sucesso:", result)
 
       setSaveSuccess(true)
       
       setTimeout(() => {
         sessionStorage.removeItem("processedImages")
         sessionStorage.removeItem("usingGlobalMemory")
-        router.push("/")
+        router.push("/admin/batches")
       }, 2000)
 
     } catch (error) {
-      console.error("Erro ao aprovar lote:", error)
-      alert("Erro ao aprovar o lote. Tente novamente.")
+      console.error("❌ Erro ao aprovar lote:", error)
+      const errorMessage = error instanceof Error ? error.message : "Erro desconhecido ao aprovar lote"
+      setSaveError(errorMessage)
+      alert(`Erro ao aprovar o lote: ${errorMessage}`)
     } finally {
       setIsSaving(false)
     }
   }
 
-  const handleRejeitarLote = () => {
-    if (confirm("Tem certeza que deseja rejeitar este lote? As imagens processadas serão descartadas.")) {
+  const handleRejeitarLote = async () => {
+    if (!confirm("Tem certeza que deseja rejeitar este lote? As imagens processadas serão permanentemente deletadas.")) {
+      return
+    }
+
+    setIsSaving(true)
+    setSaveError(null)
+
+    try {
+      // Extrair timestamp do primeiro resultado
+      const timestamp = images[0]?.timestamp
+
+      if (!timestamp) {
+        throw new Error("Timestamp não encontrado")
+      }
+
+      console.log("📤 Rejeitando lote com timestamp:", timestamp)
+
+      const response = await fetch(`${API_URL}/api/batches/reject`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ timestamp })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.detail || `Erro ${response.status}: ${response.statusText}`)
+      }
+
+      const result = await response.json()
+      console.log("✅ Lote rejeitado com sucesso:", result)
+
       sessionStorage.removeItem("processedImages")
       sessionStorage.removeItem("usingGlobalMemory")
       router.push("/")
+
+    } catch (error) {
+      console.error("❌ Erro ao rejeitar lote:", error)
+      const errorMessage = error instanceof Error ? error.message : "Erro desconhecido ao rejeitar lote"
+      setSaveError(errorMessage)
+      alert(`Erro ao rejeitar o lote: ${errorMessage}`)
+    } finally {
+      setIsSaving(false)
     }
   }
 
@@ -204,20 +294,33 @@ export default function ResultsPage() {
           </Alert>
         )}
 
+        {saveError && (
+          <Alert className="mb-6 bg-red-50 border-red-200 dark:bg-red-950 dark:border-red-800">
+            <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400" />
+            <AlertDescription className="text-red-600 dark:text-red-400">
+              {saveError}
+            </AlertDescription>
+          </Alert>
+        )}
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle>Resultados do Processamento</CardTitle>
+                <CardTitle className="flex items-center gap-2">
+                  <Package className="h-5 w-5" />
+                  Visualização dos Resultados
+                </CardTitle>
                 <CardDescription>
-                  Imagem {selectedImageIndex + 1} de {images.length}: {selectedImage.filename}
+                  Imagem {selectedImageIndex + 1} de {images.length}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Tipo de Visualização</Label>
                   <Select value={selectedView} onValueChange={setSelectedView}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Selecione a visualização" />
+                    <SelectTrigger>
+                      <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="original">Original</SelectItem>
@@ -226,120 +329,99 @@ export default function ResultsPage() {
                       <SelectItem value="boxes">Análise de Caixas</SelectItem>
                     </SelectContent>
                   </Select>
-
-                  <div className="relative aspect-video bg-muted rounded-lg overflow-hidden">
-                    <Image
-                      src={
-                        selectedView === "original" ? selectedImage.original_url :
-                        selectedView === "areas" ? selectedImage.areas_url :
-                        selectedView === "pins" ? selectedImage.pins_url :
-                        selectedImage.boxes_url
-                      }
-                      alt={
-                        selectedView === "original" ? "Imagem Original" :
-                        selectedView === "areas" ? "Áreas Detectadas" :
-                        selectedView === "pins" ? "Pins Detectados" :
-                        "Análise de Caixas"
-                      }
-                      fill
-                      className="object-contain"
-                      unoptimized
-                    />
-                  </div>
-
-                  {selectedView === "areas" && (
-                    <p className="text-sm text-muted-foreground">
-                      {selectedImage.areas_count} áreas detectadas
-                    </p>
-                  )}
-
-                  {selectedView === "pins" && (
-                    <p className="text-sm text-muted-foreground">
-                      {selectedImage.pins_count} pins detectados
-                    </p>
-                  )}
-
-                  {selectedView === "boxes" && (
-                    <>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                        <div className="text-center p-3 bg-gray-100 dark:bg-gray-800 rounded">
-                          <div className="text-2xl font-bold">{selectedImage.boxes_info?.total_boxes || 0}</div>
-                          <div className="text-xs text-muted-foreground">Total</div>
-                        </div>
-                        <div className="text-center p-3 bg-red-100 dark:bg-red-900/30 rounded">
-                          <div className="text-2xl font-bold text-red-600 dark:text-red-400">
-                            {selectedImage.boxes_info?.empty_boxes || 0}
-                          </div>
-                          <div className="text-xs text-muted-foreground">Vazias</div>
-                        </div>
-                        <div className="text-center p-3 bg-green-100 dark:bg-green-900/30 rounded">
-                          <div className="text-2xl font-bold text-green-600 dark:text-green-400">
-                            {selectedImage.boxes_info?.single_pin_boxes || 0}
-                          </div>
-                          <div className="text-xs text-muted-foreground">1 Pin</div>
-                        </div>
-                        <div className="text-center p-3 bg-orange-100 dark:bg-orange-900/30 rounded">
-                          <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">
-                            {selectedImage.boxes_info?.multiple_pins_boxes || 0}
-                          </div>
-                          <div className="text-xs text-muted-foreground">Múltiplos</div>
-                        </div>
-                      </div>
-                      <div className="space-y-2">
-                        <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">Taxa de Ocupação:</span>
-                          <span className="font-semibold">{getOccupancyRate(selectedImage.boxes_info)}%</span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">Eficiência (1 pin):</span>
-                          <span className="font-semibold">{getEfficiencyRate(selectedImage.boxes_info)}%</span>
-                        </div>
-                      </div>
-                    </>
-                  )}
                 </div>
 
-                {images.length > 1 && (
-                  <div className="flex justify-between items-center pt-4 border-t">
-                    <Button
-                      variant="outline"
-                      onClick={() => setSelectedImageIndex(Math.max(0, selectedImageIndex - 1))}
-                      disabled={selectedImageIndex === 0}
+                <div className="relative aspect-video bg-muted rounded-lg overflow-hidden">
+                  <Image
+                    src={
+                      selectedView === "original" ? selectedImage.original_url :
+                      selectedView === "areas" ? selectedImage.areas_url :
+                      selectedView === "pins" ? selectedImage.pins_url :
+                      selectedImage.boxes_url
+                    }
+                    alt={`Resultado ${selectedView}`}
+                    fill
+                    className="object-contain"
+                  />
+                </div>
+
+                <div className="flex gap-2 overflow-x-auto pb-2">
+                  {images.map((_, index) => (
+                    <button
+                      key={index}
+                      onClick={() => setSelectedImageIndex(index)}
+                      className={cn(
+                        "min-w-[80px] h-20 rounded-lg border-2 transition-all",
+                        selectedImageIndex === index
+                          ? "border-primary"
+                          : "border-transparent opacity-60 hover:opacity-100"
+                      )}
                     >
-                      ← Anterior
-                    </Button>
-                    <span className="text-sm text-muted-foreground">
-                      {selectedImageIndex + 1} / {images.length}
-                    </span>
-                    <Button
-                      variant="outline"
-                      onClick={() => setSelectedImageIndex(Math.min(images.length - 1, selectedImageIndex + 1))}
-                      disabled={selectedImageIndex === images.length - 1}
-                    >
-                      Próxima →
-                    </Button>
-                  </div>
-                )}
+                      <div className="relative w-full h-full">
+                        <Image
+                          src={images[index].original_url}
+                          alt={`Thumbnail ${index + 1}`}
+                          fill
+                          className="object-cover rounded-md"
+                        />
+                      </div>
+                    </button>
+                  ))}
+                </div>
               </CardContent>
             </Card>
 
-            {selectedImage.boxes_info && selectedImage.boxes_info.empty_boxes > selectedImage.boxes_info.total_boxes * 0.3 && (
-              <Alert variant="destructive">
-                <AlertTriangle className="h-4 w-4" />
-                <AlertDescription>
-                  Atenção: Mais de 30% das caixas estão vazias nesta imagem.
-                </AlertDescription>
-              </Alert>
-            )}
-
-            {selectedImage.boxes_info && selectedImage.boxes_info.multiple_pins_boxes > 0 && (
-              <Alert>
-                <Package className="h-4 w-4" />
-                <AlertDescription>
-                  {selectedImage.boxes_info.multiple_pins_boxes} caixa(s) com múltiplos pins detectada(s).
-                </AlertDescription>
-              </Alert>
-            )}
+            <Card>
+              <CardHeader>
+                <CardTitle>Métricas da Imagem Selecionada</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="text-center p-3 bg-blue-100 dark:bg-blue-900/30 rounded">
+                    <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+                      {selectedImage.areas_count}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Áreas</div>
+                  </div>
+                  <div className="text-center p-3 bg-purple-100 dark:bg-purple-900/30 rounded">
+                    <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">
+                      {selectedImage.pins_count}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Pins</div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="text-center p-3 bg-red-100 dark:bg-red-900/30 rounded">
+                    <div className="text-2xl font-bold text-red-600 dark:text-red-400">
+                      {selectedImage.boxes_info?.empty_boxes || 0}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Vazias</div>
+                  </div>
+                  <div className="text-center p-3 bg-green-100 dark:bg-green-900/30 rounded">
+                    <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+                      {selectedImage.boxes_info?.single_pin_boxes || 0}
+                    </div>
+                    <div className="text-xs text-muted-foreground">1 Pin</div>
+                  </div>
+                  <div className="text-center p-3 bg-orange-100 dark:bg-orange-900/30 rounded">
+                    <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">
+                      {selectedImage.boxes_info?.multiple_pins_boxes || 0}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Múltiplos</div>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Taxa de Ocupação:</span>
+                    <span className="font-semibold">{getOccupancyRate(selectedImage.boxes_info)}%</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Eficiência (1 pin):</span>
+                    <span className="font-semibold">{getEfficiencyRate(selectedImage.boxes_info)}%</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           </div>
 
           <div className="space-y-6">
@@ -348,16 +430,18 @@ export default function ResultsPage() {
                 <CardTitle>Resumo do Lote</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="text-center p-3 bg-muted rounded">
-                    <div className="text-2xl font-bold">{images.length}</div>
-                    <div className="text-xs text-muted-foreground">Imagens</div>
+                <div className="text-center p-3 bg-primary/10 rounded">
+                  <div className="text-3xl font-bold text-primary">
+                    {images.length}
                   </div>
+                  <div className="text-sm text-muted-foreground">Total de Imagens</div>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
                   <div className="text-center p-3 bg-muted rounded">
                     <div className="text-2xl font-bold">
-                      {images.reduce((sum, img) => sum + (img.boxes_info?.total_boxes || 0), 0)}
+                      {images.reduce((sum, img) => sum + img.areas_count, 0)}
                     </div>
-                    <div className="text-xs text-muted-foreground">Caixas Total</div>
+                    <div className="text-xs text-muted-foreground">Áreas Total</div>
                   </div>
                   <div className="text-center p-3 bg-muted rounded">
                     <div className="text-2xl font-bold">
