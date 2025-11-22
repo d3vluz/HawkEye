@@ -9,6 +9,7 @@ from supabase import create_client, Client
 import cv2
 import numpy as np
 from dotenv import load_dotenv
+from shaft_processing import process_shafts_complete
 
 load_dotenv()
 
@@ -31,6 +32,22 @@ if not SUPABASE_URL or not SUPABASE_KEY:
     raise RuntimeError("Variáveis SUPABASE_URL e SUPABASE_KEY devem estar definidas")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# ===================== CARREGAR MÁSCARA DE BORDA =====================
+
+BORDER_MASK_PATH = "mascaraDaBorda.png"
+BORDER_MASK = None
+
+if os.path.exists(BORDER_MASK_PATH):
+    BORDER_MASK = cv2.imread(BORDER_MASK_PATH)
+    if BORDER_MASK is not None:
+        print(f"✅ Máscara de borda carregada: {BORDER_MASK_PATH}")
+    else:
+        print(f"⚠️ Erro ao carregar máscara: {BORDER_MASK_PATH}")
+else:
+    print(f"⚠️ Máscara não encontrada: {BORDER_MASK_PATH}")
+    print(f"   O processamento continuará sem remoção de borda.")
+
 
 
 # --- Modelos de Dados ---
@@ -59,6 +76,14 @@ class BoxInfo(BaseModel):
     pins_count: int
     status: str
 
+class PinClassification(BaseModel):
+    total_pins: int
+    valid_pins: int
+    invalid_pins: int
+    critical_pins: int
+    damaged_threshold: float
+    average_area: float
+
 class ImageProcessResult(BaseModel):
     filename: str
     sha256: str
@@ -67,9 +92,12 @@ class ImageProcessResult(BaseModel):
     areas_url: str
     pins_url: str
     boxes_url: str
+    shafts_url: str
     areas_count: int
     pins_count: int
     boxes_info: Dict[str, Any]
+    pin_classification: Dict[str, Any]
+    shaft_classification: Dict[str, Any]
 
 class ProcessImagesResponse(BaseModel):
     success: bool
@@ -105,6 +133,7 @@ class CaptureData(BaseModel):
     has_damaged_pins: bool
     has_wrong_color_pins: bool
     has_structure_damage: bool
+    has_shaft_defects: bool
     compartments: List[CompartmentData]
 
 class CreateBatchRequest(BaseModel):
@@ -250,40 +279,166 @@ def process_image_areas(image: np.ndarray) -> Tuple[np.ndarray, int, List[int], 
         cv2.line(result_image, (0, y), (w, y), (0, 255, 0), 2)
     return result_image, total_compartimentos, x_positions, y_positions
 
-def process_image_pins(image: np.ndarray) -> Tuple[np.ndarray, int, List[Tuple[int, int, int, int]]]:
-    hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-    lower_yellow = np.array([10, 165, 100])
-    upper_yellow = np.array([30, 255, 255])
-    mask = cv2.inRange(hsv_image, lower_yellow, upper_yellow)
-    kernel = np.ones((5,5), np.uint8)
-    opening = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, 5) 
-    sure_bg = cv2.dilate(opening, kernel, iterations=1)
+
+def apply_watershed(image_rgb: np.ndarray, mask_input: np.ndarray, min_area: int = 500, threshold_factor: float = 0.15) -> List[np.ndarray]:
+    """Aplica o algoritmo Watershed para obter contornos que passaram pelo min_area."""
+    kernel = np.ones((3, 3), np.uint8)
+    opening = cv2.morphologyEx(mask_input, cv2.MORPH_OPEN, kernel, iterations=1)
+    sure_bg = cv2.dilate(opening, kernel, iterations=2)
+
     dist_transform = cv2.distanceTransform(opening, cv2.DIST_L2, 5)
-    _, sure_fg = cv2.threshold(dist_transform, 0.22 * dist_transform.max(), 255, 0)
+    _, sure_fg = cv2.threshold(dist_transform, threshold_factor * dist_transform.max(), 255, 0)
     sure_fg = np.uint8(sure_fg)
+
     unknown = cv2.subtract(sure_bg, sure_fg)
     _, markers = cv2.connectedComponents(sure_fg)
     markers = markers + 1
     markers[unknown == 255] = 0
-    image_for_watershed = image.copy()
-    markers = cv2.watershed(image_for_watershed, markers)
-    min_area_post_filter = 500
-    image_with_separated_contours = image.copy()
-    pins_count = 0
-    pin_boxes = []
+    
+    image_temp = image_rgb.copy()
+    markers = cv2.watershed(image_temp, markers)
+
+    final_contours = []
     for label in np.unique(markers):
         if label <= 1:
             continue
-        object_mask = np.zeros(mask.shape, dtype="uint8")
+        
+        object_mask = np.zeros(mask_input.shape, dtype="uint8")
         object_mask[markers == label] = 255
         contours, _ = cv2.findContours(object_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
         for contour in contours:
-            if cv2.contourArea(contour) > min_area_post_filter:
-                cv2.drawContours(image_with_separated_contours, [contour], -1, (255, 0, 255), 3)
-                pins_count += 1
-                x, y, w, h = cv2.boundingRect(contour)
-                pin_boxes.append((x, y, w, h))
-    return image_with_separated_contours, pins_count, pin_boxes
+            if cv2.contourArea(contour) > min_area:
+                final_contours.append(contour)
+    
+    return final_contours
+
+
+def process_image_pins(image: np.ndarray) -> Tuple[np.ndarray, int, List[Tuple[int, int, int, int]], Dict[str, Any]]:
+    """
+    Processa pins com detecção de cores erradas e danos.
+    
+    Retorna:
+        - Imagem com contornos desenhados
+        - Contagem total de pins
+        - Lista de bounding boxes dos pins
+        - Classificação detalhada dos pins
+    """
+    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    
+    # --- MÁSCARAS HSV ---
+    
+    # Pins padrão (Amarelos)
+    lower_yellow = np.array([10, 165, 100])
+    upper_yellow = np.array([30, 255, 255])
+    mask_yellow = cv2.inRange(hsv_image, lower_yellow, upper_yellow)
+    
+    # Pins fora do padrão (Azul, Vermelho, Verde)
+    mask_blue = cv2.inRange(hsv_image, np.array([110, 60, 40]), np.array([125, 255, 170]))
+    mask_red = cv2.inRange(hsv_image, np.array([0, 151, 82]), np.array([15, 255, 255]))
+    mask_green = cv2.inRange(hsv_image, np.array([70, 0, 0]), np.array([100, 255, 255]))
+    
+    mask_out_of_standard = mask_blue | mask_red | mask_green
+    
+    # --- APLICAR WATERSHED ---
+    
+    # Detecta candidatos baseados na cor
+    raw_out_contours = apply_watershed(image_rgb, mask_out_of_standard, min_area=300, threshold_factor=0.15)
+    raw_yellow_contours = apply_watershed(image_rgb, mask_yellow, min_area=300, threshold_factor=0.20)
+    
+    # --- CALCULAR MÉDIA E LIMITE DE DANO ---
+    
+    all_detected_contours = raw_yellow_contours + raw_out_contours
+    avg_area = 0.0
+    damage_threshold = 0.0
+    
+    if len(all_detected_contours) > 0:
+        all_areas = [cv2.contourArea(cnt) for cnt in all_detected_contours]
+        avg_area = float(np.mean(all_areas))
+        damage_threshold = avg_area * (2/3)
+    
+    # --- CLASSIFICAÇÃO DETALHADA (4 CATEGORIAS) ---
+    
+    pins_ok = []                  # Amarelos perfeitos
+    pins_wrong_color = []         # Cor errada, mas não danificados
+    pins_damaged_yellow = []      # Amarelos danificados
+    pins_double_defect = []       # Cor errada E danificados
+    
+    # Analisando os Amarelos
+    for cnt in raw_yellow_contours:
+        area = cv2.contourArea(cnt)
+        if area < damage_threshold:
+            pins_damaged_yellow.append(cnt)
+        else:
+            pins_ok.append(cnt)
+    
+    # Analisando os de Cor Errada
+    for cnt in raw_out_contours:
+        area = cv2.contourArea(cnt)
+        if area < damage_threshold:
+            pins_double_defect.append(cnt)
+        else:
+            pins_wrong_color.append(cnt)
+    
+    # --- AGRUPAMENTO PARA VISUALIZAÇÃO EM 3 CORES ---
+    
+    # Categoria 1: VÁLIDO (Verde) -> Pino Perfeito
+    final_green = pins_ok
+    count_green = len(final_green)
+    
+    # Categoria 2: INVÁLIDO (Laranja) -> Apenas um erro (Cor Errada OU Apenas Danificado Amarelo)
+    final_orange = pins_wrong_color + pins_damaged_yellow
+    count_orange = len(final_orange)
+    
+    # Categoria 3: CRÍTICO (Vermelho) -> Defeito Duplo (Cor Errada E Danificado)
+    final_red = pins_double_defect
+    count_red = len(final_red)
+    
+    total = count_green + count_orange + count_red
+    
+    # --- DESENHAR RESULTADO ---
+    
+    image_result = image_rgb.copy()
+    
+    COLOR_VALID = (0, 255, 0)        # Verde: Válido (Perfeito)
+    COLOR_INVALID = (255, 165, 0)    # Laranja: Inválido (Erro Único)
+    COLOR_CRITICAL = (255, 0, 0)     # Vermelho: Crítico (Erro Duplo)
+    
+    cv2.drawContours(image_result, final_green, -1, COLOR_VALID, 3)
+    cv2.drawContours(image_result, final_orange, -1, COLOR_INVALID, 3)
+    cv2.drawContours(image_result, final_red, -1, COLOR_CRITICAL, 3)
+    
+    # Converter de volta para BGR
+    image_result_bgr = cv2.cvtColor(image_result, cv2.COLOR_RGB2BGR)
+    
+    # --- EXTRAIR BOUNDING BOXES ---
+    
+    pin_boxes = []
+    all_contours = final_green + final_orange + final_red
+    for contour in all_contours:
+        x, y, w, h = cv2.boundingRect(contour)
+        pin_boxes.append((x, y, w, h))
+    
+    # --- CLASSIFICAÇÃO PARA RETORNO ---
+    
+    pin_classification = {
+        "total_pins": total,
+        "valid_pins": count_green,
+        "invalid_pins": count_orange,
+        "critical_pins": count_red,
+        "damaged_threshold": round(damage_threshold, 2),
+        "average_area": round(avg_area, 2),
+        "details": {
+            "pins_ok": count_green,
+            "pins_wrong_color": len(pins_wrong_color),
+            "pins_damaged_yellow": len(pins_damaged_yellow),
+            "pins_double_defect": len(pins_double_defect)
+        }
+    }
+    
+    return image_result_bgr, total, pin_boxes, pin_classification
+
 
 def process_image_boxes(image: np.ndarray, pin_boxes: List[Tuple[int, int, int, int]], x_positions: List[int], y_positions: List[int]) -> Tuple[np.ndarray, Dict[str, Any]]:
     image_result = cv2.cvtColor(image.copy(), cv2.COLOR_BGR2RGB)
@@ -322,14 +477,6 @@ def process_image_boxes(image: np.ndarray, pin_boxes: List[Tuple[int, int, int, 
         cv2.rectangle(image_result, (x, y), (x+w, y+h), color, 2)
         cv2.putText(image_result, str(pins_inside), (x + w//2 - 10, y + h//2), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
         boxes_info_list.append({"x": int(x), "y": int(y), "width": int(w), "height": int(h), "pins_count": int(pins_inside), "status": status})
-    y_offset = 40
-    cv2.putText(image_result, f'Total Caixas: {len(boxes)}', (20, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-    y_offset += 40
-    cv2.putText(image_result, f'Vazias: {empty_count}', (20, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
-    y_offset += 40
-    cv2.putText(image_result, f'1 Pin: {single_pin_count}', (20, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-    y_offset += 40
-    cv2.putText(image_result, f'Multiplos: {multiple_pins_count}', (20, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 165, 0), 2)
     image_result_bgr = cv2.cvtColor(image_result, cv2.COLOR_RGB2BGR)
     boxes_info = {"total_boxes": len(boxes), "empty_boxes": empty_count, "single_pin_boxes": single_pin_count, "multiple_pins_boxes": multiple_pins_count, "boxes": boxes_info_list}
     return image_result_bgr, boxes_info
@@ -339,10 +486,11 @@ def process_image_boxes(image: np.ndarray, pin_boxes: List[Tuple[int, int, int, 
 
 @app.get("/")
 def read_root():
-    return {"message": "HawkEye Backend API", 
-            "version": "2.0.0", 
-            "status": "online"
-            }
+    return {
+            "message": "HawkEye Backend API", 
+            "version": "2.2.1", 
+            "status": "online"        
+        }
 
 @app.post("/upload-image/", response_model=UploadResponse)
 async def upload_image(file: UploadFile = File(...), batch_timestamp: str = None):
@@ -391,17 +539,52 @@ async def process_images(request: ProcessImagesRequest):
     try: 
         for img_info in request.images:
             original_image = download_image_from_supabase(img_info.storage_path)
+            
+            # Processamento de áreas
             areas_image, areas_count, x_positions, y_positions = process_image_areas(original_image)
-            pins_image, pins_count, pin_boxes = process_image_pins(original_image)
+            
+            # Processamento de pins
+            pins_image, pins_count, pin_boxes, pin_classification = process_image_pins(original_image)
+            
+            # Processamento de boxes
             boxes_image, boxes_info = process_image_boxes(original_image, pin_boxes, x_positions, y_positions)
+            
+            # Processamento de hastes
+            shafts_image, shaft_classification = process_shafts_complete(
+                original_image,
+                border_mask=BORDER_MASK,
+                apply_border_centralization=True,
+                apply_border_removal=True
+            )
+            
+            # Upload de imagens processadas
             areas_path = upload_processed_image_to_supabase(areas_image, img_info.timestamp, img_info.sha256, "areas")
             pins_path = upload_processed_image_to_supabase(pins_image, img_info.timestamp, img_info.sha256, "pins")
             boxes_path = upload_processed_image_to_supabase(boxes_image, img_info.timestamp, img_info.sha256, "boxes")
+            shafts_path = upload_processed_image_to_supabase(shafts_image, img_info.timestamp, img_info.sha256, "shafts")
+            
+            # URLs públicas
             original_url = get_public_url_from_supabase(img_info.storage_path)
             areas_url = get_public_url_from_supabase(areas_path)
             pins_url = get_public_url_from_supabase(pins_path)
             boxes_url = get_public_url_from_supabase(boxes_path)
-            results.append(ImageProcessResult(filename=img_info.filename, sha256=img_info.sha256, timestamp=img_info.timestamp, original_url=original_url, areas_url=areas_url, pins_url=pins_url, boxes_url=boxes_url, areas_count=areas_count, pins_count=pins_count, boxes_info=boxes_info))
+            shafts_url = get_public_url_from_supabase(shafts_path)
+            
+            results.append(ImageProcessResult(
+                filename=img_info.filename, 
+                sha256=img_info.sha256, 
+                timestamp=img_info.timestamp, 
+                original_url=original_url, 
+                areas_url=areas_url, 
+                pins_url=pins_url, 
+                boxes_url=boxes_url,
+                shafts_url=shafts_url,
+                areas_count=areas_count, 
+                pins_count=pins_count, 
+                boxes_info=boxes_info,
+                pin_classification=pin_classification,
+                shaft_classification=shaft_classification
+            ))
             processed_count += 1
         return ProcessImagesResponse(success=True, message=f"Todas as {processed_count} imagens foram processadas", processed_count=processed_count, results=results)
     except Exception as e:
@@ -445,15 +628,40 @@ async def create_batch(request: CreateBatchRequest):
         if not batch_result.data or len(batch_result.data) == 0:
             raise HTTPException(status_code=500, detail="Erro ao criar lote")
         batch_id = batch_result.data[0]["id"]
-        print(f"   ✅ Lote criado: {batch_id}")
-        print(f"\n📸 Criando captures...")
+        
+        # print(f"   ✅ Lote criado: {batch_id}")
+        # print(f"\n📸 Criando captures...")
+        
         for capture in request.captures:
-            capture_data = {"batch_id": batch_id, "filename": capture.filename, "sha256": capture.sha256, "original_uri": get_public_url_from_supabase(capture.original_uri, SUPABASE_BUCKET_PERMANENT), "processed_uri": get_public_url_from_supabase(capture.processed_uri, SUPABASE_BUCKET_PERMANENT) if capture.processed_uri else None, "processed_areas_uri": get_public_url_from_supabase(capture.processed_areas_uri, SUPABASE_BUCKET_PERMANENT), "processed_pins_uri": get_public_url_from_supabase(capture.processed_pins_uri, SUPABASE_BUCKET_PERMANENT), "processed_shaft_uri": get_public_url_from_supabase(capture.processed_shaft_uri, SUPABASE_BUCKET_PERMANENT), "is_valid": capture.is_valid, "areas_detected": capture.areas_detected, "pins_detected": capture.pins_detected, "defects_count": capture.defects_count, "has_missing_pins": capture.has_missing_pins, "has_extra_pins": capture.has_extra_pins, "has_damaged_pins": capture.has_damaged_pins, "has_wrong_color_pins": capture.has_wrong_color_pins, "has_structure_damage": capture.has_structure_damage}
+            capture_data = {
+                            "batch_id": batch_id, 
+                            "filename": capture.filename, 
+                            "sha256": capture.sha256, 
+                            "original_uri": get_public_url_from_supabase(capture.original_uri, SUPABASE_BUCKET_PERMANENT),
+                            "processed_uri": get_public_url_from_supabase(capture.processed_uri, SUPABASE_BUCKET_PERMANENT) if capture.processed_uri else None,
+                            "processed_areas_uri": get_public_url_from_supabase(capture.processed_areas_uri, SUPABASE_BUCKET_PERMANENT),
+                            "processed_pins_uri": get_public_url_from_supabase(capture.processed_pins_uri, SUPABASE_BUCKET_PERMANENT),
+                            "processed_shaft_uri": get_public_url_from_supabase(capture.processed_shaft_uri, SUPABASE_BUCKET_PERMANENT),
+                            "is_valid": capture.is_valid,
+                            "areas_detected": capture.areas_detected,
+                            "pins_detected": capture.pins_detected,
+                            "defects_count": capture.defects_count,
+                            "has_missing_pins": capture.has_missing_pins,
+                            "has_extra_pins": capture.has_extra_pins,
+                            "has_damaged_pins": capture.has_damaged_pins,
+                            "has_wrong_color_pins": capture.has_wrong_color_pins,
+                            "has_structure_damage": capture.has_structure_damage,
+                            "has_shaft_defects": capture.has_shaft_defects
+                            }
+            
             capture_result = supabase.table("captures").insert(capture_data).execute()
+            
             if not capture_result.data or len(capture_result.data) == 0:
                 raise HTTPException(status_code=500, detail=f"Erro ao criar capture {capture.filename}")
             capture_id = capture_result.data[0]["id"]
+            
             print(f"   ✅ Capture: {capture.filename} ({capture_id})")
+            
             if capture.compartments:
                 print(f"      📦 Criando {len(capture.compartments)} compartimentos...")
                 compartments_data = [{"capture_id": capture_id, "grid_row": comp.grid_row, "grid_col": comp.grid_col, "bbox_x": comp.bbox_x, "bbox_y": comp.bbox_y, "bbox_width": comp.bbox_width, "bbox_height": comp.bbox_height, "pins_count": comp.pins_count, "is_valid": comp.is_valid, "has_defect": comp.has_defect} for comp in capture.compartments]
@@ -498,7 +706,7 @@ def health_check():
         supabase_status = True
     except Exception:
         supabase_status = False
-    return {"status": "healthy", "supabase_connected": supabase_status, "version": "4.0.0"}
+    return {"status": "healthy", "supabase_connected": supabase_status, "version": "2.2.1"}
 
 if __name__ == "__main__":
     import uvicorn

@@ -9,12 +9,45 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Loader2, CheckCircle2, XCircle, Package, AlertTriangle } from "lucide-react"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Loader2, CheckCircle2, XCircle, Package, AlertTriangle, TrendingUp, TrendingDown } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 
 import { Header } from "@/components/Header"
 import { Footer } from "@/components/Footer"
 import { cn } from "@/lib/utils"
+
+interface PinClassification {
+  total_pins: number
+  valid_pins: number
+  invalid_pins: number
+  critical_pins: number
+  damaged_threshold: number
+  average_area: number
+  details: {
+    pins_ok: number
+    pins_wrong_color: number
+    pins_damaged_yellow: number
+    pins_double_defect: number
+  }
+}
+
+interface ShaftData {
+  area: number
+  length: number
+  width: number
+  straightness: number
+  inclination_rad: number
+  approved: boolean
+  rejected_secondary: boolean
+}
+
+interface ShaftClassification {
+  total_shafts: number
+  approved_shafts: number
+  rejected_shafts: number
+  shafts: ShaftData[]
+}
 
 interface ProcessedImage {
   filename: string
@@ -24,6 +57,7 @@ interface ProcessedImage {
   areas_url: string
   pins_url: string
   boxes_url: string
+  shafts_url: string
   areas_count: number
   pins_count: number
   boxes_info: {
@@ -40,6 +74,8 @@ interface ProcessedImage {
       status: "empty" | "single" | "multiple"
     }>
   }
+  pin_classification: PinClassification
+  shaft_classification: ShaftClassification
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"
@@ -124,9 +160,11 @@ export default function ResultsPage() {
         // Calcular defeitos corretamente
         const emptyBoxes = img.boxes_info.empty_boxes || 0
         const multipleBoxes = img.boxes_info.multiple_pins_boxes || 0
-        const totalDefects = emptyBoxes + multipleBoxes
+        const invalidPins = img.pin_classification?.invalid_pins || 0
+        const criticalPins = img.pin_classification?.critical_pins || 0
+        const rejectedShafts = img.shaft_classification?.rejected_shafts || 0
         
-        // Uma captura é válida se NÃO tiver defeitos
+        const totalDefects = emptyBoxes + multipleBoxes + invalidPins + criticalPins + rejectedShafts
         const isValid = totalDefects === 0
 
         return {
@@ -136,16 +174,17 @@ export default function ResultsPage() {
           processed_uri: extractPath(img.boxes_url),
           processed_areas_uri: extractPath(img.areas_url),
           processed_pins_uri: extractPath(img.pins_url),
-          processed_shaft_uri: extractPath(img.boxes_url),
+          processed_shaft_uri: extractPath(img.shafts_url),
           is_valid: isValid,
           areas_detected: img.areas_count,
           pins_detected: img.pins_count,
           defects_count: totalDefects,
           has_missing_pins: emptyBoxes > 0,
           has_extra_pins: multipleBoxes > 0,
-          has_damaged_pins: false,
-          has_wrong_color_pins: false,
+          has_damaged_pins: (img.pin_classification?.details?.pins_damaged_yellow || 0) > 0,
+          has_wrong_color_pins: (img.pin_classification?.details?.pins_wrong_color || 0) > 0,
           has_structure_damage: false,
+          has_shaft_defects: rejectedShafts > 0,
           compartments: compartments
         }
       })
@@ -170,6 +209,9 @@ export default function ResultsPage() {
         console.log(`    ⚠️  Total de defeitos: ${capture.defects_count}`)
         console.log(`    🔴 Missing pins: ${capture.has_missing_pins ? 'Sim' : 'Não'}`)
         console.log(`    🟠 Extra pins: ${capture.has_extra_pins ? 'Sim' : 'Não'}`)
+        console.log(`    🟡 Damaged pins: ${capture.has_damaged_pins ? 'Sim' : 'Não'}`)
+        console.log(`    🟣 Wrong color pins: ${capture.has_wrong_color_pins ? 'Sim' : 'Não'}`)
+        console.log(`    🔧 Shaft defects: ${capture.has_shaft_defects ? 'Sim' : 'Não'}`)
         console.log(`    📦 Compartimentos: ${capture.compartments.length}`)
         console.log(`    ├─ Válidos: ${capture.compartments.filter(c => c.is_valid).length}`)
         console.log(`    └─ Com defeito: ${capture.compartments.filter(c => c.has_defect).length}`)
@@ -217,7 +259,6 @@ export default function ResultsPage() {
     setSaveError(null)
 
     try {
-      // Extrair timestamp do primeiro resultado
       const timestamp = images[0]?.timestamp
 
       if (!timestamp) {
@@ -267,6 +308,16 @@ export default function ResultsPage() {
   const getEfficiencyRate = (boxesInfo: ProcessedImage["boxes_info"]) => {
     if (!boxesInfo || boxesInfo.total_boxes === 0) return 0
     return (boxesInfo.single_pin_boxes / boxesInfo.total_boxes * 100).toFixed(1)
+  }
+
+  const getPinQualityRate = (pinClass: PinClassification) => {
+    if (!pinClass || pinClass.total_pins === 0) return 0
+    return (pinClass.valid_pins / pinClass.total_pins * 100).toFixed(1)
+  }
+
+  const getShaftQualityRate = (shaftClass: ShaftClassification) => {
+    if (!shaftClass || shaftClass.total_shafts === 0) return 0
+    return (shaftClass.approved_shafts / shaftClass.total_shafts * 100).toFixed(1)
   }
 
   if (isLoading || !selectedImage) {
@@ -327,6 +378,7 @@ export default function ResultsPage() {
                       <SelectItem value="areas">Áreas Detectadas</SelectItem>
                       <SelectItem value="pins">Pins Detectados</SelectItem>
                       <SelectItem value="boxes">Análise de Caixas</SelectItem>
+                      <SelectItem value="shafts">Hastes Detectadas</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -337,6 +389,7 @@ export default function ResultsPage() {
                       selectedView === "original" ? selectedImage.original_url :
                       selectedView === "areas" ? selectedImage.areas_url :
                       selectedView === "pins" ? selectedImage.pins_url :
+                      selectedView === "shafts" ? selectedImage.shafts_url :
                       selectedImage.boxes_url
                     }
                     alt={`Resultado ${selectedView}`}
@@ -373,53 +426,221 @@ export default function ResultsPage() {
 
             <Card>
               <CardHeader>
-                <CardTitle>Métricas da Imagem Selecionada</CardTitle>
+                <CardTitle>Análise Detalhada</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="text-center p-3 bg-blue-100 dark:bg-blue-900/30 rounded">
-                    <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-                      {selectedImage.areas_count}
+              <CardContent>
+                <Tabs defaultValue="compartments" className="w-full">
+                  <TabsList className="grid w-full grid-cols-3">
+                    <TabsTrigger value="compartments">Compartimentos</TabsTrigger>
+                    <TabsTrigger value="pins">Pins</TabsTrigger>
+                    <TabsTrigger value="shafts">Hastes</TabsTrigger>
+                  </TabsList>
+
+                  {/* Tab Compartimentos */}
+                  <TabsContent value="compartments" className="space-y-4">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="text-center p-3 bg-blue-100 dark:bg-blue-900/30 rounded">
+                        <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+                          {selectedImage.areas_count}
+                        </div>
+                        <div className="text-xs text-muted-foreground">Áreas</div>
+                      </div>
+                      <div className="text-center p-3 bg-purple-100 dark:bg-purple-900/30 rounded">
+                        <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">
+                          {selectedImage.pins_count}
+                        </div>
+                        <div className="text-xs text-muted-foreground">Pins Total</div>
+                      </div>
                     </div>
-                    <div className="text-xs text-muted-foreground">Áreas</div>
-                  </div>
-                  <div className="text-center p-3 bg-purple-100 dark:bg-purple-900/30 rounded">
-                    <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">
-                      {selectedImage.pins_count}
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="text-center p-3 bg-red-100 dark:bg-red-900/30 rounded">
+                        <div className="text-2xl font-bold text-red-600 dark:text-red-400">
+                          {selectedImage.boxes_info?.empty_boxes || 0}
+                        </div>
+                        <div className="text-xs text-muted-foreground">Vazias</div>
+                      </div>
+                      <div className="text-center p-3 bg-green-100 dark:bg-green-900/30 rounded">
+                        <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+                          {selectedImage.boxes_info?.single_pin_boxes || 0}
+                        </div>
+                        <div className="text-xs text-muted-foreground">1 Pin</div>
+                      </div>
+                      <div className="text-center p-3 bg-orange-100 dark:bg-orange-900/30 rounded">
+                        <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">
+                          {selectedImage.boxes_info?.multiple_pins_boxes || 0}
+                        </div>
+                        <div className="text-xs text-muted-foreground">Múltiplos</div>
+                      </div>
                     </div>
-                    <div className="text-xs text-muted-foreground">Pins</div>
-                  </div>
-                </div>
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="text-center p-3 bg-red-100 dark:bg-red-900/30 rounded">
-                    <div className="text-2xl font-bold text-red-600 dark:text-red-400">
-                      {selectedImage.boxes_info?.empty_boxes || 0}
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Taxa de Ocupação:</span>
+                        <span className="font-semibold">{getOccupancyRate(selectedImage.boxes_info)}%</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Eficiência (1 pin):</span>
+                        <span className="font-semibold">{getEfficiencyRate(selectedImage.boxes_info)}%</span>
+                      </div>
                     </div>
-                    <div className="text-xs text-muted-foreground">Vazias</div>
-                  </div>
-                  <div className="text-center p-3 bg-green-100 dark:bg-green-900/30 rounded">
-                    <div className="text-2xl font-bold text-green-600 dark:text-green-400">
-                      {selectedImage.boxes_info?.single_pin_boxes || 0}
-                    </div>
-                    <div className="text-xs text-muted-foreground">1 Pin</div>
-                  </div>
-                  <div className="text-center p-3 bg-orange-100 dark:bg-orange-900/30 rounded">
-                    <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">
-                      {selectedImage.boxes_info?.multiple_pins_boxes || 0}
-                    </div>
-                    <div className="text-xs text-muted-foreground">Múltiplos</div>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Taxa de Ocupação:</span>
-                    <span className="font-semibold">{getOccupancyRate(selectedImage.boxes_info)}%</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Eficiência (1 pin):</span>
-                    <span className="font-semibold">{getEfficiencyRate(selectedImage.boxes_info)}%</span>
-                  </div>
-                </div>
+                  </TabsContent>
+
+                  {/* Tab Pins */}
+                  <TabsContent value="pins" className="space-y-4">
+                    {selectedImage.pin_classification ? (
+                      <>
+                        <div className="grid grid-cols-3 gap-3">
+                          <div className="text-center p-3 bg-green-100 dark:bg-green-900/30 rounded">
+                            <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+                              {selectedImage.pin_classification.valid_pins}
+                            </div>
+                            <div className="text-xs text-muted-foreground">Válidos</div>
+                          </div>
+                          <div className="text-center p-3 bg-orange-100 dark:bg-orange-900/30 rounded">
+                            <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">
+                              {selectedImage.pin_classification.invalid_pins}
+                            </div>
+                            <div className="text-xs text-muted-foreground">Inválidos</div>
+                          </div>
+                          <div className="text-center p-3 bg-red-100 dark:bg-red-900/30 rounded">
+                            <div className="text-2xl font-bold text-red-600 dark:text-red-400">
+                              {selectedImage.pin_classification.critical_pins}
+                            </div>
+                            <div className="text-xs text-muted-foreground">Críticos</div>
+                          </div>
+                        </div>
+                        
+                        <div className="space-y-2 p-3 bg-muted rounded">
+                          <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">Cor Errada:</span>
+                            <span className="font-semibold">{selectedImage.pin_classification.details.pins_wrong_color}</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">Danificados (Amarelo):</span>
+                            <span className="font-semibold">{selectedImage.pin_classification.details.pins_damaged_yellow}</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">Defeito Duplo:</span>
+                            <span className="font-semibold">{selectedImage.pin_classification.details.pins_double_defect}</span>
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">Taxa de Qualidade:</span>
+                            <span className={cn(
+                              "font-semibold flex items-center gap-1",
+                              Number(getPinQualityRate(selectedImage.pin_classification)) >= 90 ? "text-green-600" : "text-orange-600"
+                            )}>
+                              {getPinQualityRate(selectedImage.pin_classification)}%
+                              {Number(getPinQualityRate(selectedImage.pin_classification)) >= 90 ? 
+                                <TrendingUp className="h-3 w-3" /> : 
+                                <TrendingDown className="h-3 w-3" />
+                              }
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">Área Média:</span>
+                            <span className="font-semibold">{selectedImage.pin_classification.average_area.toFixed(2)} px²</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">Limiar de Dano:</span>
+                            <span className="font-semibold">{selectedImage.pin_classification.damaged_threshold.toFixed(2)} px²</span>
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="text-center text-muted-foreground py-8">
+                        Dados de classificação de pins não disponíveis
+                      </div>
+                    )}
+                  </TabsContent>
+
+                  {/* Tab Hastes */}
+                  <TabsContent value="shafts" className="space-y-4">
+                    {selectedImage.shaft_classification ? (
+                      <>
+                        <div className="grid grid-cols-3 gap-3">
+                          <div className="text-center p-3 bg-blue-100 dark:bg-blue-900/30 rounded">
+                            <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+                              {selectedImage.shaft_classification.total_shafts}
+                            </div>
+                            <div className="text-xs text-muted-foreground">Total</div>
+                          </div>
+                          <div className="text-center p-3 bg-green-100 dark:bg-green-900/30 rounded">
+                            <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+                              {selectedImage.shaft_classification.approved_shafts}
+                            </div>
+                            <div className="text-xs text-muted-foreground">Aprovadas</div>
+                          </div>
+                          <div className="text-center p-3 bg-red-100 dark:bg-red-900/30 rounded">
+                            <div className="text-2xl font-bold text-red-600 dark:text-red-400">
+                              {selectedImage.shaft_classification.rejected_shafts}
+                            </div>
+                            <div className="text-xs text-muted-foreground">Reprovadas</div>
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">Taxa de Aprovação:</span>
+                            <span className={cn(
+                              "font-semibold flex items-center gap-1",
+                              Number(getShaftQualityRate(selectedImage.shaft_classification)) >= 90 ? "text-green-600" : "text-orange-600"
+                            )}>
+                              {getShaftQualityRate(selectedImage.shaft_classification)}%
+                              {Number(getShaftQualityRate(selectedImage.shaft_classification)) >= 90 ? 
+                                <TrendingUp className="h-3 w-3" /> : 
+                                <TrendingDown className="h-3 w-3" />
+                              }
+                            </span>
+                          </div>
+                        </div>
+
+                        {selectedImage.shaft_classification.shafts.length > 0 && (
+                          <div className="space-y-2">
+                            <div className="text-sm font-semibold">Detalhes das Hastes:</div>
+                            <div className="max-h-60 overflow-y-auto space-y-2">
+                              {selectedImage.shaft_classification.shafts.map((shaft, idx) => (
+                                <div key={idx} className={cn(
+                                  "p-2 rounded text-xs",
+                                  shaft.approved 
+                                    ? "bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800"
+                                    : shaft.rejected_secondary
+                                    ? "bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800"
+                                    : "bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800"
+                                )}>
+                                  <div className="flex items-center justify-between mb-1">
+                                    <span className="font-semibold">Haste {idx + 1}</span>
+                                    {shaft.approved ? (
+                                      <CheckCircle2 className="h-3 w-3 text-green-600" />
+                                    ) : (
+                                      <XCircle className="h-3 w-3 text-red-600" />
+                                    )}
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-1 text-muted-foreground">
+                                    <div>Comprimento: {shaft.length.toFixed(1)}px</div>
+                                    <div>Largura: {shaft.width.toFixed(1)}px</div>
+                                    <div>Linearidade: {shaft.straightness.toFixed(2)}</div>
+                                    <div>Área: {shaft.area.toFixed(1)}px²</div>
+                                  </div>
+                                  {shaft.rejected_secondary && (
+                                    <div className="mt-1 text-purple-600 dark:text-purple-400 font-semibold">
+                                      Reprovada: Critério Secundário
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className="text-center text-muted-foreground py-8">
+                        Dados de hastes não disponíveis
+                      </div>
+                    )}
+                  </TabsContent>
+                </Tabs>
               </CardContent>
             </Card>
           </div>
@@ -436,24 +657,70 @@ export default function ResultsPage() {
                   </div>
                   <div className="text-sm text-muted-foreground">Total de Imagens</div>
                 </div>
-                <div className="grid grid-cols-3 gap-2">
-                  <div className="text-center p-3 bg-muted rounded">
-                    <div className="text-2xl font-bold">
-                      {images.reduce((sum, img) => sum + img.areas_count, 0)}
+                
+                <div className="space-y-3">
+                  <div className="text-sm font-semibold">Compartimentos</div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="text-center p-3 bg-muted rounded">
+                      <div className="text-2xl font-bold">
+                        {images.reduce((sum, img) => sum + img.areas_count, 0)}
+                      </div>
+                      <div className="text-xs text-muted-foreground">Áreas</div>
                     </div>
-                    <div className="text-xs text-muted-foreground">Áreas Total</div>
+                    <div className="text-center p-3 bg-muted rounded">
+                      <div className="text-2xl font-bold">
+                        {images.reduce((sum, img) => sum + img.pins_count, 0)}
+                      </div>
+                      <div className="text-xs text-muted-foreground">Pins</div>
+                    </div>
+                    <div className="text-center p-3 bg-red-100 dark:bg-red-900/30 rounded">
+                      <div className="text-2xl font-bold text-red-600 dark:text-red-400">
+                        {images.reduce((sum, img) => sum + (img.boxes_info?.empty_boxes || 0), 0)}
+                      </div>
+                      <div className="text-xs text-muted-foreground">Vazias</div>
+                    </div>
                   </div>
-                  <div className="text-center p-3 bg-muted rounded">
-                    <div className="text-2xl font-bold">
-                      {images.reduce((sum, img) => sum + img.pins_count, 0)}
+                </div>
+
+                <div className="space-y-3">
+                  <div className="text-sm font-semibold">Qualidade dos Pins</div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="text-center p-3 bg-green-100 dark:bg-green-900/30 rounded">
+                      <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+                        {images.reduce((sum, img) => sum + (img.pin_classification?.valid_pins || 0), 0)}
+                      </div>
+                      <div className="text-xs text-muted-foreground">Válidos</div>
                     </div>
-                    <div className="text-xs text-muted-foreground">Pins Total</div>
+                    <div className="text-center p-3 bg-orange-100 dark:bg-orange-900/30 rounded">
+                      <div className="text-2xl font-bold text-orange-600 dark:text-orange-400">
+                        {images.reduce((sum, img) => sum + (img.pin_classification?.invalid_pins || 0), 0)}
+                      </div>
+                      <div className="text-xs text-muted-foreground">Inválidos</div>
+                    </div>
+                    <div className="text-center p-3 bg-red-100 dark:bg-red-900/30 rounded">
+                      <div className="text-2xl font-bold text-red-600 dark:text-red-400">
+                        {images.reduce((sum, img) => sum + (img.pin_classification?.critical_pins || 0), 0)}
+                      </div>
+                      <div className="text-xs text-muted-foreground">Críticos</div>
+                    </div>
                   </div>
-                  <div className="text-center p-3 bg-red-100 dark:bg-red-900/30 rounded">
-                    <div className="text-2xl font-bold text-red-600 dark:text-red-400">
-                      {images.reduce((sum, img) => sum + (img.boxes_info?.empty_boxes || 0), 0)}
+                </div>
+
+                <div className="space-y-3">
+                  <div className="text-sm font-semibold">Hastes</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="text-center p-3 bg-green-100 dark:bg-green-900/30 rounded">
+                      <div className="text-2xl font-bold text-green-600 dark:text-green-400">
+                        {images.reduce((sum, img) => sum + (img.shaft_classification?.approved_shafts || 0), 0)}
+                      </div>
+                      <div className="text-xs text-muted-foreground">Aprovadas</div>
                     </div>
-                    <div className="text-xs text-muted-foreground">Vazias Total</div>
+                    <div className="text-center p-3 bg-red-100 dark:bg-red-900/30 rounded">
+                      <div className="text-2xl font-bold text-red-600 dark:text-red-400">
+                        {images.reduce((sum, img) => sum + (img.shaft_classification?.rejected_shafts || 0), 0)}
+                      </div>
+                      <div className="text-xs text-muted-foreground">Reprovadas</div>
+                    </div>
                   </div>
                 </div>
               </CardContent>
