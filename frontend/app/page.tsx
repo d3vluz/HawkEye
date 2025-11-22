@@ -319,8 +319,7 @@ export default function HawkEyePage() {
 
   return (
     <div className={cn("min-h-screen flex flex-col", isDarkMode && "dark")}>
-      <Header isDarkMode={isDarkMode} toggleTheme={toggleTheme} />
-
+      <Header/>
       <main className="flex-1 p-4 sm:p-8 flex items-center justify-center">
         <Card className="w-full max-w-4xl">
           <CardHeader>

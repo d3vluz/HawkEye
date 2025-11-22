@@ -333,7 +333,7 @@ export default function ResultsPage() {
 
   return (
     <div className={cn("min-h-screen flex flex-col", isDarkMode && "dark")}>
-      <Header isDarkMode={isDarkMode} toggleTheme={toggleTheme} />
+      <Header/>
       
       <main className="flex-1 container mx-auto py-8 px-4">
         {saveSuccess && (

@@ -1,18 +1,12 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import { useTheme } from "next-themes"
 import { useRouter, usePathname } from "next/navigation"
 import Image from "next/image"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { 
-  LayoutDashboard, 
-  Users, 
-  Package, 
-  Settings, 
-  LogOut,
-  X
-} from "lucide-react"
+import { LayoutDashboard, Users, Package, Settings, LogOut, X, Sun, Moon} from "lucide-react"
 import { cn } from "@/lib/utils"
 
 export default function AdminLayout({
@@ -23,6 +17,11 @@ export default function AdminLayout({
   const router = useRouter()
   const pathname = usePathname()
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const { theme, setTheme } = useTheme()
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   const handleLogout = () => {
     router.push("/")
@@ -44,7 +43,7 @@ export default function AdminLayout({
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-zinc-950 transition-colors duration-300">
       {/* Sidebar */}
       <aside
         className={cn(
@@ -173,8 +172,33 @@ export default function AdminLayout({
           })}
         </nav>
 
-        {/* Logout Button */}
-        <div className="p-4 border-t border-gray-800">
+        {/* Footer Actions (Theme + Logout) */}
+        <div className="p-4 border-t border-gray-800 space-y-2">
+          
+          {/* Botão de Tema */}
+          {mounted && (
+            <button
+              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+              className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-gray-400 transition-colors hover:bg-gray-800 hover:text-white"
+            >
+              {theme === "dark" ? (
+                <Sun className="h-5 w-5 flex-shrink-0" />
+              ) : (
+                <Moon className="h-5 w-5 flex-shrink-0" />
+              )}
+              
+              {sidebarOpen && (
+                <span className={cn(
+                  "transition-opacity duration-150",
+                  sidebarOpen ? "opacity-100 delay-300" : "opacity-0 delay-0"
+                )}>
+                  {theme === "dark" ? "Modo Claro" : "Modo Escuro"}
+                </span>
+              )}
+            </button>
+          )}
+
+          {/* Botão de Logout */}
           <button
             onClick={handleLogout}
             className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-gray-400 transition-colors hover:bg-gray-800 hover:text-white"
