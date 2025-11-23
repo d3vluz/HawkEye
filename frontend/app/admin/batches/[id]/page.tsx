@@ -102,21 +102,17 @@ export default function BatchDetailPage({ params }: { params: Promise<{ id: stri
         try {
             const JSZip = (await import('jszip')).default
             const zip = new JSZip()
-            
-            const folderName = batch.name.replace(/\s+/g, '_')
-            const folder = zip.folder(folderName)
-            
-            if (!folder) throw new Error('Erro ao criar pasta no ZIP')
 
             for (const capture of captures) {
-                const filename = capture.filename || `capture_${capture.id.slice(0, 8)}`
-                const baseName = filename.replace(/\.[^/.]+$/, '')
+                const captureFolder = zip.folder(capture.sha256)
+                if (!captureFolder) continue
                 
                 const images = [
-                    { url: capture.original_uri, suffix: 'original' },
-                    { url: capture.processed_areas_uri, suffix: 'areas' },
-                    { url: capture.processed_pins_uri, suffix: 'pins' },
-                    { url: capture.processed_shaft_uri, suffix: 'hastes' },
+                    { url: capture.original_uri, name: 'original' },
+                    { url: capture.processed_uri, name: 'caixas' },
+                    { url: capture.processed_areas_uri, name: 'areas' },
+                    { url: capture.processed_pins_uri, name: 'pins' },
+                    { url: capture.processed_shaft_uri, name: 'hastes' },
                 ]
                 
                 for (const img of images) {
@@ -125,20 +121,21 @@ export default function BatchDetailPage({ params }: { params: Promise<{ id: stri
                             const response = await fetch(img.url)
                             if (response.ok) {
                                 const blob = await response.blob()
-                                folder.file(`${baseName}_${img.suffix}.png`, blob)
+                                captureFolder.file(`${img.name}.png`, blob)
                             }
                         } catch (err) {
-                            console.warn(`Erro ao baixar ${img.suffix} de ${filename}:`, err)
+                            console.warn(`Erro ao baixar ${img.name}:`, err)
                         }
                     }
                 }
             }
             
+            const folderName = batch.name.replace(/\s+/g, '_')
             const content = await zip.generateAsync({ type: 'blob' })
             const url = URL.createObjectURL(content)
             const a = document.createElement('a')
             a.href = url
-            a.download = `${folderName}_imagens.zip`
+            a.download = `${folderName}.zip`
             document.body.appendChild(a)
             a.click()
             document.body.removeChild(a)
@@ -253,51 +250,25 @@ export default function BatchDetailPage({ params }: { params: Promise<{ id: stri
                           <span className="text-gray-700">DETALHES</span>
                       </div>
                       
-                      {/* Título e Badge */}
+                      {/* Título */}
                       <div className="flex items-center gap-4 mb-3">
                           <h1 className="text-3xl font-bold text-gray-900">{batch.name}</h1>
-                          <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                              (batch.quality_score || 0) >= 90 
-                                  ? 'bg-green-100 text-green-800 border border-green-200'
-                                  : (batch.quality_score || 0) >= 70
-                                  ? 'bg-yellow-100 text-yellow-800 border border-yellow-200'
-                                  : 'bg-red-100 text-red-800 border border-red-200'
-                          }`}>
-                              {(batch.quality_score || 0) >= 90 ? 'Excelente' : 
-                               (batch.quality_score || 0) >= 70 ? 'Regular' : 'Crítico'}
-                          </span>
+                          {/* @TODO: revisar a necessidade de um badge */}
                       </div>
 
                       {/* Descrição */}
                       {batch.description && (
-                          <p className="text-gray-600 text-base mb-3 max-w-2xl">
+                          <p className="text-gray-600 text-base my-3 max-w-2xl">
                               {batch.description}
                           </p>
                       )}
 
-                      {/* Meta informações */}
-                      <div className="flex items-center gap-6 text-sm text-gray-500">
-                          <div className="flex items-center gap-2">
-                              <ImageIcon className="h-4 w-4" />
-                              <span>{batch.total_captures} imagens</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                              <CheckCircle className="h-4 w-4 text-green-500" />
-                              <span>{batch.valid_captures} válidas</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                              <XCircle className="h-4 w-4 text-red-500" />
-                              <span>{batch.invalid_captures} inválidas</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                              <AlertTriangle className="h-4 w-4 text-orange-500" />
-                              <span>{batch.total_defects} defeitos</span>
-                          </div>
-                      </div>
-
                       {/* Data de criação */}
                       <p className="text-gray-400 text-xs mt-3">
                           Processado em {formatDate(batch.created_at)}
+                      </p>
+                      <p className="text-gray-400 text-[10px] mt-2">
+                        {batch.id}
                       </p>
                   </div>
 
