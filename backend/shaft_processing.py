@@ -1,6 +1,5 @@
 """
-Módulo de Processamento de Hastes (Shafts) - VERSÃO CORRIGIDA E INTEGRADA
-Mantém TODAS as etapas do pipeline original e corrige a reversão espacial:
+Módulo de Processamento de Hastes
 1. Centralização da borda (com retorno de matriz de transformação)
 2. Remoção da borda usando máscara estática
 3. Extração de dados dos pins
@@ -15,6 +14,7 @@ Mantém TODAS as etapas do pipeline original e corrige a reversão espacial:
 import cv2
 import numpy as np
 import math
+import os
 from typing import Tuple, List, Dict, Any, Optional, Union
 
 # ===================== CONFIGURAÇÕES GLOBAIS =====================
@@ -24,7 +24,7 @@ LOWER_YELLOW = np.array([10, 165, 100])
 UPPER_YELLOW = np.array([30, 255, 255])
 
 # Área mínima do corpo do pin
-MIN_AREA_PIN = 2000
+MIN_AREA_PIN = 1200
 
 # Intervalo RGB para fundo natural
 LOWER_BG = np.array([20, 18, 22], dtype=np.float32)
@@ -42,7 +42,7 @@ MAX_LENGTH = 110
 MIN_WIDTH = 1
 MAX_WIDTH = 15
 MIN_STRAIGHTNESS = 0.85
-MIN_LENGTH_SECUNDARIO = 75
+MIN_LENGTH_SECUNDARIO = 60
 
 # Parâmetros de segmentação
 MIN_AREA_SHAFT = 10
@@ -556,24 +556,17 @@ def process_shafts_complete(
     # 1. Carregar máscara de borda se for string (caminho)
     loaded_border_mask = None
     if isinstance(border_mask, str):
-        loaded_border_mask = cv2.imread(border_mask)
-        if loaded_border_mask is None:
+        if os.path.exists(border_mask):
+            loaded_border_mask = cv2.imread(border_mask)
+        else:
             print(f"AVISO: Máscara não encontrada no caminho: {border_mask}")
     elif isinstance(border_mask, np.ndarray):
         loaded_border_mask = border_mask
 
     # 2. Centralização da borda (Se ativada)
     if apply_border_centralization:
-        # Importante: Captura M_total e mask_original para reversão futura
         current_image, M_total, mask_original_roi = centralize_border(current_image)
     
-    # 3. Remoção da borda (Se ativada)
-    if apply_border_removal and loaded_border_mask is not None:
-        # O loaded_border_mask é assumido como estático e alinhado para a imagem centralizada
-        current_image = remove_border_with_mask(current_image, loaded_border_mask)
-    
-    # 4. Pipeline de Detecção
-    # Detecta pins, remove corpo, cria máscara haste, isola e segmenta
     pins_data = extract_pin_data(current_image)
     
     if not pins_data:
@@ -582,6 +575,10 @@ def process_shafts_complete(
             'total_shafts': 0, 'approved_shafts': 0, 'rejected_shafts': 0, 'shafts': []
         }
     
+    if apply_border_removal and loaded_border_mask is not None:
+        current_image = remove_border_with_mask(current_image, loaded_border_mask)
+    
+    # 4. Pipeline de Processamento das Hastes
     image_no_bodies = remove_pin_bodies(current_image)
     shaft_mask = create_shaft_mask(image_no_bodies, pins_data)
     image_isolated = apply_shaft_mask(image_no_bodies, shaft_mask)
@@ -589,8 +586,8 @@ def process_shafts_complete(
     shafts = analyze_shafts(contours)
     shafts = apply_secondary_parameter(shafts)
     
-    # 5. Desenho dos Resultados (na imagem PROCESSADA/CENTRALIZADA)
-    # Criamos uma cópia para desenhar as anotações antes de reverter
+    # 5. Desenho dos Resultados
+    # Usamos uma cópia da imagem atual (processada) para desenhar as anotações
     visual_processed = current_image.copy()
     
     for shaft in shafts:
@@ -608,7 +605,7 @@ def process_shafts_complete(
         if p1 is not None and p2 is not None:
             cv2.line(visual_processed, p1, p2, (255, 0, 0), 1)
 
-    # 6. Reversão Espacial (Revert to Original)
+    # 6. Reversão Espacial
     # Aplica a inversa da matriz M_total para colar o resultado anotado sobre a imagem original
     if apply_border_centralization:
         result_final = revert_transformation(
@@ -621,7 +618,7 @@ def process_shafts_complete(
         # Se não houve centralização, a imagem processada já está no espaço original
         result_final = visual_processed
 
-    # 7. Preparar dados de retorno (JSON friendly)
+    # 7. Preparar dados de retorno
     total = len(shafts)
     approved = sum(1 for s in shafts if s['approved'])
     rejected = total - approved
