@@ -15,7 +15,7 @@ interface BatchMetricsProps {
 export default function BatchMetrics({ data }: BatchMetricsProps) {
   return (
     <Card className="p-6 mt-8">
-      <h3 className="text-lg font-semibold text-slate-900 mb-4">Lotes Recentes - Análise Detalhada</h3>
+      <h3 className="text-lg font-semibold text-slate-900 mb-4">Lotes Recentes</h3>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 border-b border-slate-200">

@@ -146,7 +146,7 @@ export default function LotesPage() {
             <Table className="min-w-[900px]">
               <TableHeader>
                 <TableRow className="hover:bg-transparent border-b border-gray-200">
-                  <TableHead className="font-semibold text-gray-700 text-xs w-[200px] pl-6">Nome</TableHead>
+                  <TableHead className="font-semibold text-gray-700 text-xs w-[200px] pl-6">Código</TableHead>
                   <TableHead className="font-semibold text-gray-700 text-xs w-[280px]">Descrição</TableHead>
                   <TableHead className="font-semibold text-gray-700 text-xs w-[100px] text-center">Imagens</TableHead>
                   <TableHead className="font-semibold text-gray-700 text-xs w-[100px] text-center">Defeitos</TableHead>
