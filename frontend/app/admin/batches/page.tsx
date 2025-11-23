@@ -170,28 +170,19 @@ export default function LotesPage() {
                     <TableCell className="text-sm text-gray-700 text-center">
                       <div className="flex flex-col items-center">
                         <span className="font-semibold">{batch.total_captures}</span>
-                        <span className="text-xs text-gray-500">
-                          {batch.valid_captures} válidas
-                        </span>
                       </div>
                     </TableCell>
                     <TableCell className="text-sm text-center">
-                      {batch.total_defects > 0 ? (
-                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-50 text-red-700 border border-red-200">
-                          {batch.total_defects}
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-50 text-green-700 border border-green-200">
-                          0
-                        </span>
-                      )}
+                      <div className="flex flex-col items-center">
+                        <span className="font-semibold">{batch.total_defects}</span>
+                      </div>
                     </TableCell>
                     <TableCell className="text-sm text-center">
                       <div className="flex flex-col items-center">
                         <span className={`font-semibold ${
-                          (batch.quality_score || 0) >= 90 ? 'text-green-600' :
-                          (batch.quality_score || 0) >= 70 ? 'text-yellow-600' :
-                          'text-red-600'
+                          (batch.quality_score || 0) >= 80 ? 'text-green-700' :
+                          (batch.quality_score || 0) >= 60 ? 'text-yellow-600' :
+                          'text-red-700'
                         }`}>
                           {formatQualityScore(batch.quality_score)}
                         </span>
@@ -209,7 +200,7 @@ export default function LotesPage() {
                           onClick={() => router.push(`/admin/batches/${batch.id}`)}
                           title="Ver detalhes"
                         >
-                          <Eye className="h-4 w-4 text-blue-600" />
+                          <Eye className="h-4 w-4 text-blue-700" />
                         </Button>
                         <Button
                           size="sm"
@@ -222,7 +213,7 @@ export default function LotesPage() {
                           {deleting === batch.id ? (
                             <Loader2 className="h-4 w-4 text-red-600 animate-spin" />
                           ) : (
-                            <Trash2 className="h-4 w-4 text-red-600" />
+                            <Trash2 className="h-4 w-4 text-red-700" />
                           )}
                         </Button>
                       </div>
