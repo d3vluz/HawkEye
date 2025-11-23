@@ -602,7 +602,7 @@ async def create_batch(request: CreateBatchRequest):
         print(f"\n📁 Movendo arquivos...")
         moved_captures = []
         for capture in request.captures:
-            files_to_move = [(capture.original_uri, capture.original_uri), (capture.processed_areas_uri, capture.processed_areas_uri), (capture.processed_pins_uri, capture.processed_pins_uri), (capture.processed_shaft_uri, capture.processed_shaft_uri)]
+            files_to_move = [(capture.original_uri, capture.original_uri), (capture.processed_uri, capture.processed_uri), (capture.processed_areas_uri, capture.processed_areas_uri), (capture.processed_pins_uri, capture.processed_pins_uri), (capture.processed_shaft_uri, capture.processed_shaft_uri)]
             all_moved = True
             for temp_path, dest_path in files_to_move:
                 if temp_path:
