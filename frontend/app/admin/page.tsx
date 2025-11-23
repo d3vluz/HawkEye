@@ -6,144 +6,7 @@ import KPICards from "@/components/dashboard/kpi-cards"
 import DefectRanking from "@/components/dashboard/defect-ranking"
 import QualityCharts from "@/components/dashboard/quality-charts"
 import BatchMetrics from "@/components/dashboard/batch-metrics"
-
-interface DashboardMetrics {
-  totalBatches: number;
-  totalImages: number;
-  validImages: number;
-  totalDefects: number;
-  qualityScore: number;
-  defectTrends: { name: string; count: number; date: string }[];
-  errorDistribution: { name: string; value: number }[];
-  validityDistribution: { name: string; value: number; color: string }[];
-  topDefects: {
-    rank: number;
-    code: string;
-    label: string;
-    count: number;
-    severity: number;
-    percentage: number;
-  }[];
-  recentBatches: {
-    name: string;
-    totalCaptures: number;
-    validCaptures: number;
-    qualityScore: number;
-    defectCount: number;
-  }[];
-}
-
-const mockData: DashboardMetrics = {
-    totalBatches: 24,
-    totalImages: 1240,
-    validImages: 1089,
-    totalDefects: 324,
-    qualityScore: 87.8,
-
-    defectTrends: [
-        { name: "Seg", count: 12, date: "2024-01-01" },
-        { name: "Ter", count: 19, date: "2024-01-02" },
-        { name: "Qua", count: 15, date: "2024-01-03" },
-        { name: "Qui", count: 25, date: "2024-01-04" },
-        { name: "Sex", count: 18, date: "2024-01-05" },
-        { name: "Sab", count: 22, date: "2024-01-06" },
-        { name: "Dom", count: 11, date: "2024-01-07" },
-    ],
-
-    errorDistribution: [
-        { name: "Pino Danificado", value: 95 },
-        { name: "Cor Incorreta", value: 87 },
-        { name: "Dano na Estrutura", value: 72 },
-        { name: "Pino Faltante", value: 54 },
-        { name: "Pino Extra", value: 16 },
-    ],
-
-    validityDistribution: [
-        { name: "Válidas", value: 87.8, color: "#193cb8" },
-        { name: "Inválidas", value: 12.2, color: "#ca3838ff" },
-    ],
-
-    topDefects: [
-        {
-            rank: 1,
-            code: "PIN_DMG",
-            label: "Pino Danificado",
-            count: 95,
-            severity: 4,
-            percentage: 29.3,
-        },
-        {
-            rank: 2,
-            code: "WRONG_COLOR",
-            label: "Cor Incorreta",
-            count: 87,
-            severity: 3,
-            percentage: 26.8,
-        },
-        {
-            rank: 3,
-            code: "STRUCT_DMG",
-            label: "Dano Estrutural",
-            count: 72,
-            severity: 5,
-            percentage: 22.2,
-        },
-        {
-            rank: 4,
-            code: "PIN_MISS",
-            label: "Pino Faltante",
-            count: 54,
-            severity: 4,
-            percentage: 16.7,
-        },
-        {
-            rank: 5,
-            code: "PIN_EXTRA",
-            label: "Pino Extra",
-            count: 16,
-            severity: 2,
-            percentage: 4.9,
-        },
-    ],
-
-    recentBatches: [
-        {
-            name: "BATCH-2024-001",
-            totalCaptures: 120,
-            validCaptures: 108,
-            qualityScore: 90,
-            defectCount: 12,
-        },
-        {
-            name: "BATCH-2024-002",
-            totalCaptures: 95,
-            validCaptures: 85,
-            qualityScore: 89.5,
-            defectCount: 10,
-        },
-        {
-            name: "BATCH-2024-003",
-            totalCaptures: 140,
-            validCaptures: 119,
-            qualityScore: 85,
-            defectCount: 21,
-        },
-        {
-            name: "BATCH-2024-004",
-            totalCaptures: 110,
-            validCaptures: 98,
-            qualityScore: 89,
-            defectCount: 12,
-        },
-        {
-            name: "BATCH-2024-005",
-            totalCaptures: 125,
-            validCaptures: 110,
-            qualityScore: 88,
-            defectCount: 15,
-        },
-    ],
-}
+import { getDashboardMetrics, type DashboardMetrics } from "@/lib/supabase/dashboard-service"
 
 export default function DashboardPage() {
   const [dashboardData, setDashboardData] = useState<DashboardMetrics | null>(null)
@@ -153,22 +16,23 @@ export default function DashboardPage() {
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
-        // Simulação da chamada de API
-        // const response = await fetch("/api/dashboard/metrics")
-        // if (!response.ok) throw new Error("Failed to fetch metrics")
-        // const data: DashboardMetrics = await response.json()
-        
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        setDashboardData(mockData) 
+        setLoading(true)
+        const data = await getDashboardMetrics()
+        setDashboardData(data)
+        setError(null)
       } catch (err) {
-        setError(err instanceof Error ? err.message : "An error occurred")
+        console.error('Erro ao carregar dashboard:', err)
+        setError(err instanceof Error ? err.message : "Erro ao carregar métricas")
       } finally {
         setLoading(false)
       }
     }
 
     fetchDashboardData()
+
+    const interval = setInterval(fetchDashboardData, 30000)
+    
+    return () => clearInterval(interval)
   }, [])
 
   if (loading) {
@@ -199,6 +63,13 @@ export default function DashboardPage() {
         <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
           <p className="font-medium">Erro ao carregar dados</p>
           <p className="text-sm">{error}</p>
+        </div>
+      )}
+
+      {!dashboardData && !loading && (
+        <div className="mb-6 p-8 bg-blue-50 border border-blue-200 rounded-lg text-center">
+          <p className="text-blue-800 font-medium mb-2">Nenhum dado disponível</p>
+          <p className="text-blue-600 text-sm">Processe alguns lotes para visualizar as métricas</p>
         </div>
       )}
 
