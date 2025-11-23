@@ -631,6 +631,8 @@ async def create_batch(request: CreateBatchRequest):
         
         # print(f"   ✅ Lote criado: {batch_id}")
         # print(f"\n📸 Criando captures...")
+        defect_types_result = supabase.table("defect_types").select("id, code").execute()
+        defect_types_map = {dt["code"]: dt["id"] for dt in defect_types_result.data} if defect_types_result.data else {}
         
         for capture in request.captures:
             capture_data = {
@@ -662,6 +664,7 @@ async def create_batch(request: CreateBatchRequest):
             
             print(f"   ✅ Capture: {capture.filename} ({capture_id})")
             
+            compartments_map = {}
             if capture.compartments:
                 print(f"      📦 Criando {len(capture.compartments)} compartimentos...")
                 compartments_data = [{"capture_id": capture_id, "grid_row": comp.grid_row, "grid_col": comp.grid_col, "bbox_x": comp.bbox_x, "bbox_y": comp.bbox_y, "bbox_width": comp.bbox_width, "bbox_height": comp.bbox_height, "pins_count": comp.pins_count, "is_valid": comp.is_valid, "has_defect": comp.has_defect} for comp in capture.compartments]
@@ -669,6 +672,67 @@ async def create_batch(request: CreateBatchRequest):
                     comp_result = supabase.table("compartments").insert(compartments_data).execute()
                     if comp_result.data:
                         print(f"      ✅ {len(comp_result.data)} compartimentos criados")
+                        for comp in comp_result.data:
+                            key = (comp["grid_row"], comp["grid_col"])
+                            compartments_map[key] = comp["id"]
+            
+            defects_to_insert = []
+            
+            if capture.has_missing_pins and "MISSING_PIN" in defect_types_map:
+                for comp in capture.compartments:
+                    if comp.pins_count == 0:
+                        key = (comp.grid_row, comp.grid_col)
+                        compartment_id = compartments_map.get(key)
+                        defects_to_insert.append({
+                            "capture_id": capture_id,
+                            "defect_type_id": defect_types_map["MISSING_PIN"],
+                            "compartment_id": compartment_id
+                        })
+            
+            if capture.has_extra_pins and "EXTRA_PIN" in defect_types_map:
+                for comp in capture.compartments:
+                    if comp.pins_count > 1:
+                        key = (comp.grid_row, comp.grid_col)
+                        compartment_id = compartments_map.get(key)
+                        defects_to_insert.append({
+                            "capture_id": capture_id,
+                            "defect_type_id": defect_types_map["EXTRA_PIN"],
+                            "compartment_id": compartment_id
+                        })
+            
+            if capture.has_damaged_pins and "DAMAGED_PIN" in defect_types_map:
+                defects_to_insert.append({
+                    "capture_id": capture_id,
+                    "defect_type_id": defect_types_map["DAMAGED_PIN"],
+                    "compartment_id": None
+                })
+            
+            if capture.has_wrong_color_pins and "WRONG_COLOR" in defect_types_map:
+                defects_to_insert.append({
+                    "capture_id": capture_id,
+                    "defect_type_id": defect_types_map["WRONG_COLOR"],
+                    "compartment_id": None
+                })
+            
+            if capture.has_shaft_defects and "SHAFT_DEFECT" in defect_types_map:
+                defects_to_insert.append({
+                    "capture_id": capture_id,
+                    "defect_type_id": defect_types_map["SHAFT_DEFECT"],
+                    "compartment_id": None
+                })
+            
+            if capture.has_structure_damage and "STRUCTURE_DAMAGE" in defect_types_map:
+                defects_to_insert.append({
+                    "capture_id": capture_id,
+                    "defect_type_id": defect_types_map["STRUCTURE_DAMAGE"],
+                    "compartment_id": None
+                })
+            
+            if defects_to_insert:
+                print(f"      🔴 Criando {len(defects_to_insert)} defeitos...")
+                defects_result = supabase.table("defects").insert(defects_to_insert).execute()
+                if defects_result.data:
+                    print(f"      ✅ {len(defects_result.data)} defeitos criados")
         print(f"\n🗑️ Deletando temporários...")
         delete_success = delete_folder_from_bucket(timestamp, SUPABASE_BUCKET_TEMP)
         if delete_success:
