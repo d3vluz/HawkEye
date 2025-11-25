@@ -40,6 +40,7 @@ gnome-terminal --title="HawkEye Frontend" -- bash -c "
     npm run build;
     npm run start;
     exec bash"
+# opcional: npm run dev
 
 echo ""
 echo "=================================================="

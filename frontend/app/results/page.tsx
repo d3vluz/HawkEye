@@ -390,7 +390,7 @@ export default function ResultsPage() {
                 <div className="flex-1 min-h-0 flex flex-col">
                     
                   {/* ABA GERAL */}
-                  <TabsContent value="stats" className="flex-1 flex flex-col mt-0 data-[state=inactive]:hidden">
+                  <TabsContent value="stats" className="flex-1 flex overflow-y-auto flex-col mt-0 data-[state=inactive]:hidden">
                     <ScrollArea className="flex-1 w-full">
                       <div className="p-4 space-y-4">
                         
