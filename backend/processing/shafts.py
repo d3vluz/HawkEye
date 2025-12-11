@@ -1,5 +1,7 @@
 """
-Módulo de Processamento de Hastes
+Módulo de Processamento de Hastes (Shafts).
+
+Pipeline completo:
 1. Centralização da borda (com retorno de matriz de transformação)
 2. Remoção da borda usando máscara estática
 3. Extração de dados dos pins
@@ -17,7 +19,8 @@ import math
 import os
 from typing import Tuple, List, Dict, Any, Optional, Union
 
-# ===================== CONFIGURAÇÕES GLOBAIS =====================
+
+# ===================== CONFIGURAÇÕES =====================
 
 # Intervalo HSV para pins amarelos
 LOWER_YELLOW = np.array([10, 165, 100])
@@ -55,17 +58,22 @@ MIN_EFFECTIVE_ROT = 0.01
 # ===================== FUNÇÕES AUXILIARES - GEOMETRIA =====================
 
 def unit_vector(v: np.ndarray) -> np.ndarray:
+    """Retorna o vetor unitário."""
     v = np.asarray(v, dtype=float)
     n = np.linalg.norm(v)
     if n == 0:
         return v
     return v / n
 
+
 def perpendicular(v: np.ndarray) -> np.ndarray:
+    """Retorna o vetor perpendicular."""
     v = np.asarray(v, dtype=float)
     return np.array([-v[1], v[0]], dtype=float)
 
+
 def compute_pca_axis(points: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """Calcula o eixo principal via PCA."""
     points = np.asarray(points, dtype=float)
     centroid = np.mean(points, axis=0)
     centered = points - centroid
@@ -80,7 +88,12 @@ def compute_pca_axis(points: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         principal_axis = unit_vector(eigvecs[:, idx[0]].real)
     return centroid, principal_axis
 
-def find_extremity_pair_on_best_perp(pts, centroid, main_u, perp_u, end='min', strip_width=20, samples=15, proj_tol=None):
+
+def find_extremity_pair_on_best_perp(
+    pts, centroid, main_u, perp_u, 
+    end='min', strip_width=20, samples=15, proj_tol=None
+):
+    """Encontra par de extremidades na melhor perpendicular."""
     proj_all = np.dot(pts - centroid, main_u)
     min_p, max_p = proj_all.min(), proj_all.max()
     
@@ -118,7 +131,9 @@ def find_extremity_pair_on_best_perp(pts, centroid, main_u, perp_u, end='min', s
         return (None, None, None, 0.0)
     return (best_pair[0], best_pair[1], best_proj, float(best_width))
 
+
 def find_outward_border_point_and_dir_for_end(contour_pts, centroid, main_u, which_end='max'):
+    """Encontra ponto de borda externo e direção."""
     proj = np.dot(contour_pts - centroid, main_u)
     idx = np.argmax(proj) if which_end == 'max' else np.argmin(proj)
     border_pt = contour_pts[idx]
@@ -128,7 +143,9 @@ def find_outward_border_point_and_dir_for_end(contour_pts, centroid, main_u, whi
         dir_u = -dir_u
     return border_pt, dir_u
 
+
 def compute_axis_intersection(axis_pt, axis_dir, point_on_perp):
+    """Calcula interseção com o eixo."""
     axis_pt = np.asarray(axis_pt, dtype=float)
     d = unit_vector(axis_dir)
     B = np.asarray(point_on_perp, dtype=float)
@@ -148,14 +165,17 @@ def compute_axis_intersection(axis_pt, axis_dir, point_on_perp):
         inter = axis_pt + d * t
         return np.round(inter, 4)
 
+
 def fbm_noise(h: int, w: int, octaves: int = 5) -> np.ndarray:
+    """Gera ruído FBM para textura de fundo."""
     noise_total = np.zeros((h, w, 3), np.float32)
     freq = 1.0
     amp = 1.0
     for _ in range(octaves):
         n = np.random.rand(h, w, 3).astype(np.float32)
         k = int(max(3, (40 // freq)))
-        if k % 2 == 0: k += 1
+        if k % 2 == 0:
+            k += 1
         n = cv2.GaussianBlur(n, (k, k), 0)
         noise_total += n * amp
         freq *= 2.0
@@ -164,18 +184,22 @@ def fbm_noise(h: int, w: int, octaves: int = 5) -> np.ndarray:
     return noise_total
 
 
-# ===================== ETAPA 0: CENTRALIZAÇÃO DA BORDA =====================
+# ===================== CENTRALIZAÇÃO DA BORDA =====================
 
-def angle_from_fitline(vx, vy):
+def _angle_from_fitline(vx, vy):
+    """Calcula ângulo a partir de fitLine."""
     ang = math.degrees(math.atan2(np.asarray(vy).item(), np.asarray(vx).item()))
     ang = ((ang + 180) % 180) - 90
     return ang
 
-def rotation_to_align(angle_deg):
+
+def _rotation_to_align(angle_deg):
+    """Calcula rotação necessária para alinhar."""
     ang_mod = angle_deg % 180
     opt0 = -ang_mod
     opt90 = 90 - ang_mod
     return opt0 if abs(opt0) < abs(opt90) else opt90
+
 
 def centralize_border(image_bgr: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
@@ -190,8 +214,7 @@ def centralize_border(image_bgr: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np
     
     contours, _ = cv2.findContours(th, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if not contours:
-        # Retorna identidade se falhar
-        return image_bgr.copy(), np.eye(3, dtype=np.float64), np.zeros((H,W), dtype=np.uint8)
+        return image_bgr.copy(), np.eye(3, dtype=np.float64), np.zeros((H, W), dtype=np.uint8)
     
     cnt = max(contours, key=cv2.contourArea)
     
@@ -201,7 +224,7 @@ def centralize_border(image_bgr: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np
     
     # Cálculo de rotação
     vx, vy, _, _ = cv2.fitLine(cnt, cv2.DIST_L2, 0, 0.01, 0.01)
-    ang_fit = angle_from_fitline(vx, vy)
+    ang_fit = _angle_from_fitline(vx, vy)
     
     ys = cnt[:, 0, 1]
     ymin, ymax = np.percentile(ys, [10, 90])
@@ -210,11 +233,13 @@ def centralize_border(image_bgr: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np
     
     def safe_angle(idx_arr, fallback):
         try:
-            if len(idx_arr) < 2: return fallback
+            if len(idx_arr) < 2:
+                return fallback
             pts = cnt[idx_arr]
             vx2, vy2, _, _ = cv2.fitLine(pts, cv2.DIST_L2, 0, 0.01, 0.01)
-            return angle_from_fitline(vx2, vy2)
-        except Exception: return fallback
+            return _angle_from_fitline(vx2, vy2)
+        except Exception:
+            return fallback
     
     ang_top = safe_angle(mask_top_idx, ang_fit)
     ang_bot = safe_angle(mask_bot_idx, ang_fit)
@@ -222,7 +247,7 @@ def centralize_border(image_bgr: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np
     diff_tb = abs(ang_top - ang_bot)
     conf = float(max(0.0, 1.0 - diff_tb / 5.0))
     
-    rot_needed = rotation_to_align(ang_global)
+    rot_needed = _rotation_to_align(ang_global)
     if abs(rot_needed) < MIN_EFFECTIVE_ROT or conf < 0.1:
         rot_needed = 0.0
     rot_needed = float(np.clip(rot_needed, -MAX_ADJUST_DEG, MAX_ADJUST_DEG))
@@ -232,8 +257,10 @@ def centralize_border(image_bgr: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np
     Mrot_2x3 = cv2.getRotationMatrix2D(center, -rot_needed, 1.0).astype(np.float64)
     
     M = cv2.moments(cnt)
-    if M["m00"] == 0: cx, cy = int(W/2), int(H/2)
-    else: cx, cy = float(M["m10"]/M["m00"]), float(M["m01"]/M["m00"])
+    if M["m00"] == 0:
+        cx, cy = int(W / 2), int(H / 2)
+    else:
+        cx, cy = float(M["m10"] / M["m00"]), float(M["m01"] / M["m00"])
     
     dx = float((W / 2.0) - cx)
     dy = float((H / 2.0) - cy)
@@ -248,24 +275,26 @@ def centralize_border(image_bgr: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np
     M_total_3 = Mshift_3 @ Mrot_3
     M_total_2x3 = M_total_3[:2, :].astype(np.float64)
     
-    final_bgr = cv2.warpAffine(image_bgr, M_total_2x3, (W, H), flags=cv2.INTER_LINEAR, borderValue=(0, 0, 0))
+    final_bgr = cv2.warpAffine(
+        image_bgr, M_total_2x3, (W, H),
+        flags=cv2.INTER_LINEAR, borderValue=(0, 0, 0)
+    )
     
     return final_bgr, M_total_3, mask_original
 
 
 def revert_transformation(
-    processed_image: np.ndarray, 
-    original_background: np.ndarray, 
-    M_total: np.ndarray, 
+    processed_image: np.ndarray,
+    original_background: np.ndarray,
+    M_total: np.ndarray,
     mask_original: np.ndarray
 ) -> np.ndarray:
     """
-    Reverte a transformação espacial, colando o resultado processado de volta na imagem original.
-    Corresponde à lógica do Etapa-4_reverterBorda.py.
+    Reverte a transformação espacial, colando o resultado processado 
+    de volta na imagem original.
     """
     H, W = original_background.shape[:2]
     
-    # Calcular inversa da transformação total
     try:
         M_inv = np.linalg.inv(M_total)
     except np.linalg.LinAlgError:
@@ -273,30 +302,29 @@ def revert_transformation(
         
     M_inv_2x3 = M_inv[:2, :]
     
-    # Warp da imagem processada de volta para a geometria original
-    reconstructed = cv2.warpAffine(processed_image, M_inv_2x3, (W, H),
-                                   flags=cv2.INTER_LINEAR, borderValue=(0,0,0))
+    reconstructed = cv2.warpAffine(
+        processed_image, M_inv_2x3, (W, H),
+        flags=cv2.INTER_LINEAR, borderValue=(0, 0, 0)
+    )
     
-    # Colocar ROI revertida sobre background original
     final = original_background.copy()
     mask_bool = (mask_original > 0)
-    
-    # Aplicar apenas onde a máscara original permite (na região da placa)
-    # Se a reconstrução for preta (0,0,0) por causa da borda, mantemos o fundo original?
-    # A lógica da Etapa 4 sobrepõe tudo onde mask_bool é True.
     final[mask_bool] = reconstructed[mask_bool]
     
     return final
 
 
-# ===================== ETAPAS 1-7: PROCESSAMENTO DE IMAGEM =====================
+# ===================== PROCESSAMENTO DE IMAGEM =====================
 
-def remove_border_with_mask(image_bgr: np.ndarray, border_mask: Optional[np.ndarray] = None) -> np.ndarray:
+def remove_border_with_mask(
+    image_bgr: np.ndarray, 
+    border_mask: Optional[np.ndarray] = None
+) -> np.ndarray:
+    """Remove a borda usando uma máscara."""
     h, w = image_bgr.shape[:2]
     if border_mask is None:
         return image_bgr.copy()
     
-    # Garante que a máscara bata com o tamanho da imagem (importante se houve conversões)
     if border_mask.shape[:2] != (h, w):
         mask_resized = cv2.resize(border_mask, (w, h))
     else:
@@ -334,7 +362,9 @@ def remove_border_with_mask(image_bgr: np.ndarray, border_mask: Optional[np.ndar
     
     return result
 
+
 def extract_pin_data(image_bgr: np.ndarray) -> List[Dict[str, Any]]:
+    """Extrai dados dos pins da imagem."""
     hsv = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV)
     mask = cv2.inRange(hsv, LOWER_YELLOW, UPPER_YELLOW)
     contours_data = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -343,12 +373,14 @@ def extract_pin_data(image_bgr: np.ndarray) -> List[Dict[str, Any]]:
     
     for cnt in contours:
         area = cv2.contourArea(cnt)
-        if area < MIN_AREA_PIN: continue
+        if area < MIN_AREA_PIN:
+            continue
         
         obj_mask = np.zeros_like(mask)
         cv2.drawContours(obj_mask, [cnt], -1, 255, -1)
         ys, xs = np.where(obj_mask > 0)
-        if len(xs) < 5: continue
+        if len(xs) < 5:
+            continue
         
         pts = np.vstack((xs, ys)).T.astype(np.float32)
         centroid, main_u = compute_pca_axis(pts)
@@ -359,10 +391,15 @@ def extract_pin_data(image_bgr: np.ndarray) -> List[Dict[str, Any]]:
         length_est = np.ptp(np.dot(pts - centroid, main_u))
         strip_width = max(strip_min_px, strip_frac * max(1.0, length_est))
         
-        left1, right1, _, width1 = find_extremity_pair_on_best_perp(pts, centroid, main_u, perp_u, end='min', strip_width=strip_width)
-        left2, right2, _, width2 = find_extremity_pair_on_best_perp(pts, centroid, main_u, perp_u, end='max', strip_width=strip_width)
+        left1, right1, _, width1 = find_extremity_pair_on_best_perp(
+            pts, centroid, main_u, perp_u, end='min', strip_width=strip_width
+        )
+        left2, right2, _, width2 = find_extremity_pair_on_best_perp(
+            pts, centroid, main_u, perp_u, end='max', strip_width=strip_width
+        )
         
-        if left1 is None or right1 is None or left2 is None or right2 is None: continue
+        if left1 is None or right1 is None or left2 is None or right2 is None:
+            continue
         
         if width2 >= width1:
             superior_pair = (left2, right2)
@@ -373,35 +410,51 @@ def extract_pin_data(image_bgr: np.ndarray) -> List[Dict[str, Any]]:
             inferior_pair = (left2, right2)
             which_end = 'min'
             
-        def mean_pt(pair): return None if pair[0] is None else (pair[0] + pair[1]) / 2.0
+        def mean_pt(pair):
+            return None if pair[0] is None else (pair[0] + pair[1]) / 2.0
+        
         superior_center = mean_pt(superior_pair)
         inferior_center = mean_pt(inferior_pair)
         
         contour_pts = cnt.reshape(-1, 2).astype(np.float32)
         try:
-            border_pt, _ = find_outward_border_point_and_dir_for_end(contour_pts, centroid, main_u, which_end=which_end)
-        except Exception: border_pt = None
+            border_pt, _ = find_outward_border_point_and_dir_for_end(
+                contour_pts, centroid, main_u, which_end=which_end
+            )
+        except Exception:
+            border_pt = None
         
         real_u = None
         if superior_center is not None and inferior_center is not None:
             v = superior_center - inferior_center
-            if np.linalg.norm(v) > 1e-6: real_u = unit_vector(v)
-        if real_u is None: real_u = main_u.copy()
+            if np.linalg.norm(v) > 1e-6:
+                real_u = unit_vector(v)
+        if real_u is None:
+            real_u = main_u.copy()
         if border_pt is not None:
-            if np.dot(real_u, (border_pt - centroid)) < 0: real_u = -real_u
+            if np.dot(real_u, (border_pt - centroid)) < 0:
+                real_u = -real_u
             
         inter_sup = compute_axis_intersection(centroid, real_u, superior_center) if superior_center is not None else None
         inter_inf = compute_axis_intersection(centroid, real_u, inferior_center) if inferior_center is not None else None
         
         if inter_sup is not None and inter_inf is not None:
-            pins_data.append({'inter_sup': inter_sup, 'inter_inf': inter_inf, 'axis': real_u})
+            pins_data.append({
+                'inter_sup': inter_sup,
+                'inter_inf': inter_inf,
+                'axis': real_u
+            })
+    
     return pins_data
 
+
 def remove_pin_bodies(image_bgr: np.ndarray) -> np.ndarray:
+    """Remove os corpos dos pins da imagem."""
     hsv_image = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV)
     mask = cv2.inRange(hsv_image, LOWER_YELLOW, UPPER_YELLOW)
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     filtered_mask = np.zeros_like(mask)
+    
     for contour in contours:
         if cv2.contourArea(contour) > MIN_AREA_PIN:
             cv2.drawContours(filtered_mask, [contour], -1, 255, -1)
@@ -412,7 +465,8 @@ def remove_pin_bodies(image_bgr: np.ndarray) -> np.ndarray:
     
     dist_float = cv2.distanceTransform(mask_bin, cv2.DIST_L2, 5)
     max_dist = dist_float.max()
-    if max_dist < 1: max_dist = 1.0
+    if max_dist < 1:
+        max_dist = 1.0
     
     fade = (dist_float / max_dist).astype(np.float32)
     fade[fade > 1] = 1.0
@@ -425,12 +479,18 @@ def remove_pin_bodies(image_bgr: np.ndarray) -> np.ndarray:
     result_rgb[mask_indices] = grad[mask_indices]
     return result_rgb
 
-def make_trapezoid(inter_sup, inter_inf, length, half_width_base_menor, half_width_base_maior, offset_start=0):
+
+def _make_trapezoid(
+    inter_sup, inter_inf, length,
+    half_width_base_menor, half_width_base_maior, offset_start=0
+):
+    """Cria um trapézio para máscara de haste."""
     inter_sup, inter_inf = np.array(inter_sup), np.array(inter_inf)
     vec_sup_inf = inter_inf - inter_sup
     vec_oposto = -vec_sup_inf
     norm = np.linalg.norm(vec_oposto)
-    if norm == 0: return None
+    if norm == 0:
+        return None
     unit_vec = vec_oposto / norm
     start_point = inter_sup + unit_vec * offset_start
     tip = start_point + unit_vec * length
@@ -440,11 +500,14 @@ def make_trapezoid(inter_sup, inter_inf, length, half_width_base_menor, half_wid
     p3, p4 = tip - perp_menor, tip + perp_menor
     return np.array([p1, p2, p3, p4], dtype=np.int32)
 
+
 def create_shaft_mask(image_bgr: np.ndarray, pins_data: List[Dict[str, Any]]) -> np.ndarray:
+    """Cria máscara para as hastes."""
     h, w = image_bgr.shape[:2]
     mask = np.zeros((h, w), dtype=np.uint8)
+    
     for pin_data in pins_data:
-        trap = make_trapezoid(
+        trap = _make_trapezoid(
             pin_data['inter_sup'], pin_data['inter_inf'], TRAP_LENGTH,
             half_width_base_menor=HALF_WIDTH_BASE_MENOR,
             half_width_base_maior=HALF_WIDTH_BASE_MAIOR,
@@ -452,9 +515,12 @@ def create_shaft_mask(image_bgr: np.ndarray, pins_data: List[Dict[str, Any]]) ->
         )
         if trap is not None:
             cv2.fillPoly(mask, [trap], 255)
+    
     return mask
 
+
 def apply_shaft_mask(image_bgr: np.ndarray, shaft_mask: np.ndarray) -> np.ndarray:
+    """Aplica a máscara de hastes na imagem."""
     h, w = image_bgr.shape[:2]
     base_color = ((LOWER_BG + UPPER_BG) // 2).astype(np.uint8)
     background_template = np.tile(base_color, (h, w, 1))
@@ -464,17 +530,23 @@ def apply_shaft_mask(image_bgr: np.ndarray, shaft_mask: np.ndarray) -> np.ndarra
         high=variation_scale * (UPPER_BG - LOWER_BG) + 1,
         size=(h, w, 3)
     ).astype(np.int16)
-    background = np.clip(background_template.astype(np.int16) + noise, LOWER_BG, UPPER_BG).astype(np.uint8)
+    background = np.clip(
+        background_template.astype(np.int16) + noise, LOWER_BG, UPPER_BG
+    ).astype(np.uint8)
     background = cv2.GaussianBlur(background, (25, 25), 0)
     
     mask_smooth = cv2.GaussianBlur(shaft_mask, (21, 21), 0)
     mask_smooth = mask_smooth.astype(np.float32) / 255.0
     
-    result = (image_bgr.astype(np.float32) * mask_smooth[..., np.newaxis] +
-              background.astype(np.float32) * (1.0 - mask_smooth[..., np.newaxis]))
+    result = (
+        image_bgr.astype(np.float32) * mask_smooth[..., np.newaxis] +
+        background.astype(np.float32) * (1.0 - mask_smooth[..., np.newaxis])
+    )
     return np.clip(result, 0, 255).astype(np.uint8)
 
+
 def segment_shafts(image_bgr: np.ndarray) -> Tuple[np.ndarray, List[np.ndarray]]:
+    """Segmenta as hastes da imagem."""
     gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
     _, mask = cv2.threshold(gray, 50, 255, cv2.THRESH_BINARY)
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
@@ -484,70 +556,109 @@ def segment_shafts(image_bgr: np.ndarray) -> Tuple[np.ndarray, List[np.ndarray]]
     filtered_contours = [cnt for cnt in contours if cv2.contourArea(cnt) >= MIN_AREA_SHAFT]
     return mask, filtered_contours
 
-def linearidade_pca(contour: np.ndarray) -> Tuple[float, Optional[Tuple], Optional[Tuple]]:
+
+def _linearidade_pca(contour: np.ndarray) -> Tuple[float, Optional[Tuple], Optional[Tuple]]:
+    """Calcula linearidade via PCA."""
     cont_pts = contour.reshape(-1, 2).astype(np.float32)
-    if len(cont_pts) < 2: return 0.0, None, None
+    if len(cont_pts) < 2:
+        return 0.0, None, None
+    
     mean, eigvecs = cv2.PCACompute(cont_pts, mean=None)
     dx, dy = eigvecs[0]
     proj = np.dot(cont_pts - mean, eigvecs[0])
     idx_min, idx_max = np.argmin(proj), np.argmax(proj)
     p_ext1, p_ext2 = cont_pts[idx_min], cont_pts[idx_max]
+    
     comprimento = math.hypot(p_ext2[0] - p_ext1[0], p_ext2[1] - p_ext1[1])
-    if comprimento <= 0: return 0.0, tuple(p_ext1.astype(int)), tuple(p_ext2.astype(int))
+    if comprimento <= 0:
+        return 0.0, tuple(p_ext1.astype(int)), tuple(p_ext2.astype(int))
+    
     norma = comprimento
-    dists = np.abs(dy * (cont_pts[:, 0] - p_ext1[0]) - dx * (cont_pts[:, 1] - p_ext1[1])) / (norma + 1e-9)
+    dists = np.abs(
+        dy * (cont_pts[:, 0] - p_ext1[0]) - dx * (cont_pts[:, 1] - p_ext1[1])
+    ) / (norma + 1e-9)
     straightness = 1 - (np.mean(dists) / (norma / 2 + 1e-9))
+    
     return float(np.clip(straightness, 0, 1)), tuple(p_ext1.astype(int)), tuple(p_ext2.astype(int))
 
+
 def analyze_shafts(contours: List[np.ndarray]) -> List[Dict[str, Any]]:
+    """Analisa e classifica as hastes."""
     shafts_info = []
+    
     for cnt in contours:
         area = cv2.contourArea(cnt)
-        if area < MIN_AREA_SHAFT: continue
+        if area < MIN_AREA_SHAFT:
+            continue
+        
         pts = cnt[:, 0, :]
         dists = np.sqrt(np.sum((pts[:, None, :] - pts[None, :, :]) ** 2, axis=2))
         length = np.max(dists)
         width = area / length if length != 0 else 0
-        straightness, p1, p2 = linearidade_pca(cnt)
+        
+        straightness, p1, p2 = _linearidade_pca(cnt)
         theta = math.atan2(p2[1] - p1[1], p2[0] - p1[0]) if p1 is not None and p2 is not None else 0.0
-        aprovado = (MIN_LENGTH <= length <= MAX_LENGTH and MIN_WIDTH <= width <= MAX_WIDTH and straightness >= MIN_STRAIGHTNESS)
+        
+        aprovado = (
+            MIN_LENGTH <= length <= MAX_LENGTH and
+            MIN_WIDTH <= width <= MAX_WIDTH and
+            straightness >= MIN_STRAIGHTNESS
+        )
+        
         shafts_info.append({
-            'area': float(area), 'length': float(length), 'width': float(width),
-            'straightness': float(straightness), 'inclination_rad': float(theta),
-            'approved': bool(aprovado), 'extremities': (p1, p2), 'contour': cnt
+            'area': float(area),
+            'length': float(length),
+            'width': float(width),
+            'straightness': float(straightness),
+            'inclination_rad': float(theta),
+            'approved': bool(aprovado),
+            'extremities': (p1, p2),
+            'contour': cnt
         })
+    
     return shafts_info
 
+
 def apply_secondary_parameter(shafts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Aplica parâmetro secundário de rejeição."""
     reprovadas_primario = [h for h in shafts if not h['approved']]
-    if len(reprovadas_primario) > 0: return shafts
+    if len(reprovadas_primario) > 0:
+        return shafts
+    
     candidatas = [h for h in shafts if h['length'] <= MIN_LENGTH_SECUNDARIO]
-    if len(candidatas) == 0: return shafts
+    if len(candidatas) == 0:
+        return shafts
+    
     menor_haste = min(candidatas, key=lambda x: x['length'])
     menor_haste['rejected_secondary'] = True
     menor_haste['approved'] = False
+    
     return shafts
 
 
-# ===================== PIPELINE COMPLETO INTEGRADO =====================
+# ===================== PIPELINE COMPLETO =====================
 
-def process_shafts_complete(
+def process_shafts(
     image_bgr: np.ndarray,
     border_mask: Optional[Union[np.ndarray, str]] = None,
     apply_border_centralization: bool = True,
     apply_border_removal: bool = True
 ) -> Tuple[np.ndarray, Dict[str, Any]]:
     """
-    Pipeline completo.
+    Pipeline completo de processamento de hastes.
     
     Args:
-        image_bgr: Imagem original.
-        border_mask: Caminho para a imagem da máscara OU array numpy da máscara.
-        apply_border_centralization: True para alinhar a placa.
-        apply_border_removal: True para remover a borda da placa.
-    """
+        image_bgr: Imagem original (BGR)
+        border_mask: Caminho para a imagem da máscara OU array numpy da máscara
+        apply_border_centralization: True para alinhar a placa
+        apply_border_removal: True para remover a borda da placa
     
-    # 0. Preparação da imagem original e variáveis de estado
+    Returns:
+        Tuple contendo:
+        - Imagem com hastes anotadas
+        - Dicionário com dados de classificação
+    """
+    # 0. Preparação
     original_input = image_bgr.copy()
     current_image = image_bgr.copy()
     M_total = np.eye(3, dtype=np.float64)
@@ -563,22 +674,26 @@ def process_shafts_complete(
     elif isinstance(border_mask, np.ndarray):
         loaded_border_mask = border_mask
 
-    # 2. Centralização da borda (Se ativada)
+    # 2. Centralização da borda
     if apply_border_centralization:
         current_image, M_total, mask_original_roi = centralize_border(current_image)
     
+    # 3. Extrair dados dos pins
     pins_data = extract_pin_data(current_image)
     
     if not pins_data:
-        # Se não achou nada, retorna a imagem original
         return original_input, {
-            'total_shafts': 0, 'approved_shafts': 0, 'rejected_shafts': 0, 'shafts': []
+            'total_shafts': 0,
+            'approved_shafts': 0,
+            'rejected_shafts': 0,
+            'shafts': []
         }
     
+    # 4. Remover borda com máscara
     if apply_border_removal and loaded_border_mask is not None:
         current_image = remove_border_with_mask(current_image, loaded_border_mask)
     
-    # 4. Pipeline de Processamento das Hastes
+    # 5. Pipeline de processamento das hastes
     image_no_bodies = remove_pin_bodies(current_image)
     shaft_mask = create_shaft_mask(image_no_bodies, pins_data)
     image_isolated = apply_shaft_mask(image_no_bodies, shaft_mask)
@@ -586,8 +701,7 @@ def process_shafts_complete(
     shafts = analyze_shafts(contours)
     shafts = apply_secondary_parameter(shafts)
     
-    # 5. Desenho dos Resultados
-    # Usamos uma cópia da imagem atual (processada) para desenhar as anotações
+    # 6. Desenhar resultados
     visual_processed = current_image.copy()
     
     for shaft in shafts:
@@ -605,8 +719,7 @@ def process_shafts_complete(
         if p1 is not None and p2 is not None:
             cv2.line(visual_processed, p1, p2, (255, 0, 0), 1)
 
-    # 6. Reversão Espacial
-    # Aplica a inversa da matriz M_total para colar o resultado anotado sobre a imagem original
+    # 7. Reversão espacial
     if apply_border_centralization:
         result_final = revert_transformation(
             processed_image=visual_processed,
@@ -615,10 +728,9 @@ def process_shafts_complete(
             mask_original=mask_original_roi
         )
     else:
-        # Se não houve centralização, a imagem processada já está no espaço original
         result_final = visual_processed
 
-    # 7. Preparar dados de retorno
+    # 8. Preparar dados de retorno
     total = len(shafts)
     approved = sum(1 for s in shafts if s['approved'])
     rejected = total - approved
@@ -643,3 +755,7 @@ def process_shafts_complete(
     }
     
     return result_final, classification_data
+
+
+# Alias para manter compatibilidade com código existente
+process_shafts_complete = process_shafts
