@@ -1,53 +1,84 @@
 """
 Serviço de gerenciamento de lotes (batches).
-Orquestra criação, salvamento e rejeição de lotes.
+
+Lê imagens do cache em memória e faz upload direto para o bucket permanente,
+eliminando o bucket temporário completamente.
 """
-from typing import Dict, Any
+import cv2
+from typing import Dict, Any, List, Tuple
 from fastapi import HTTPException
 
 from app.core.config import settings
 from app.core.dependencies import get_supabase
-from app.repositories import (
-    get_public_url,
-    move_file_between_buckets,
-    delete_folder,
-)
+from app.core.image_cache import get_image_cache, CachedImage
+from app.repositories import get_public_url, upload_processed_image
 from app.schemas import CreateBatchRequest, CaptureData
 
 
-def _move_capture_files(capture: CaptureData) -> bool:
+def _encode_image_to_bytes(image) -> bytes:
+    """Codifica numpy array para bytes PNG."""
+    success, buffer = cv2.imencode('.png', image)
+    if not success:
+        raise ValueError("Falha ao codificar imagem para PNG")
+    return buffer.tobytes()
+
+
+def _upload_image_to_permanent(
+    image_bytes: bytes,
+    storage_path: str
+) -> str:
     """
-    Move todos os arquivos de uma captura do bucket temporário para o permanente.
-    
-    Args:
-        capture: Dados da captura
+    Faz upload de imagem direto para o bucket permanente.
     
     Returns:
-        True se todos os arquivos foram movidos com sucesso
+        Caminho do arquivo no storage
     """
-    files_to_move = [
-        capture.original_uri,
-        capture.processed_uri,
-        capture.processed_areas_uri,
-        capture.processed_pins_uri,
-        capture.processed_shaft_uri,
+    supabase = get_supabase()
+    supabase.storage.from_(settings.SUPABASE_BUCKET_PERMANENT).upload(
+        path=storage_path,
+        file=image_bytes,
+        file_options={"content-type": "image/png", "upsert": "true"}
+    )
+    return storage_path
+
+
+def _upload_cached_image_to_permanent(
+    cached_img: CachedImage,
+    timestamp: str
+) -> Dict[str, str]:
+    """
+    Faz upload de todas as imagens de uma captura do cache para o bucket permanente.
+    
+    Returns:
+        Dicionário com os caminhos de cada imagem
+    """
+    sha256 = cached_img.sha256
+    paths = {}
+    
+    # Upload da imagem original
+    original_path = f"{timestamp}/{sha256}/original_{cached_img.filename}"
+    original_bytes = _encode_image_to_bytes(cached_img.original)
+    _upload_image_to_permanent(original_bytes, original_path)
+    paths["original"] = original_path
+    print(f"   ✅ Upload: original_{cached_img.filename}")
+    
+    # Upload das imagens processadas
+    processed_types = [
+        ("areas", cached_img.processed_areas),
+        ("pins", cached_img.processed_pins),
+        ("boxes", cached_img.processed_boxes),
+        ("shafts", cached_img.processed_shafts),
     ]
     
-    for file_path in files_to_move:
-        if file_path:
-            success = move_file_between_buckets(
-                source_path=file_path,
-                dest_path=file_path,
-                source_bucket=settings.SUPABASE_BUCKET_TEMP,
-                dest_bucket=settings.SUPABASE_BUCKET_PERMANENT
-            )
-            if success:
-                print(f"   ✅ Movido: {file_path}")
-            else:
-                print(f"   ❌ Falha: {file_path}")
-                return False
+    for img_type, img_data in processed_types:
+        if img_data is not None:
+            path = f"{timestamp}/{sha256}/processed_{img_type}.png"
+            img_bytes = _encode_image_to_bytes(img_data)
+            _upload_image_to_permanent(img_bytes, path)
+            paths[img_type] = path
+            print(f"   ✅ Upload: processed_{img_type}.png")
     
-    return True
+    return paths
 
 
 def _create_batch_record(
@@ -64,9 +95,6 @@ def _create_batch_record(
     
     Returns:
         ID do lote criado
-    
-    Raises:
-        HTTPException: Se erro ao criar lote
     """
     supabase = get_supabase()
     
@@ -90,28 +118,27 @@ def _create_batch_record(
 
 def _create_capture_record(
     batch_id: str,
-    capture: CaptureData
+    capture: CaptureData,
+    uploaded_paths: Dict[str, str]
 ) -> str:
     """
     Cria o registro de uma captura no banco de dados.
     
     Returns:
         ID da captura criada
-    
-    Raises:
-        HTTPException: Se erro ao criar captura
     """
     supabase = get_supabase()
+    bucket = settings.SUPABASE_BUCKET_PERMANENT
     
     capture_data = {
         "batch_id": batch_id,
         "filename": capture.filename,
         "sha256": capture.sha256,
-        "original_uri": get_public_url(capture.original_uri, settings.SUPABASE_BUCKET_PERMANENT),
-        "processed_uri": get_public_url(capture.processed_uri, settings.SUPABASE_BUCKET_PERMANENT) if capture.processed_uri else None,
-        "processed_areas_uri": get_public_url(capture.processed_areas_uri, settings.SUPABASE_BUCKET_PERMANENT),
-        "processed_pins_uri": get_public_url(capture.processed_pins_uri, settings.SUPABASE_BUCKET_PERMANENT),
-        "processed_shaft_uri": get_public_url(capture.processed_shaft_uri, settings.SUPABASE_BUCKET_PERMANENT),
+        "original_uri": get_public_url(uploaded_paths.get("original", ""), bucket),
+        "processed_uri": get_public_url(uploaded_paths.get("boxes", ""), bucket),
+        "processed_areas_uri": get_public_url(uploaded_paths.get("areas", ""), bucket),
+        "processed_pins_uri": get_public_url(uploaded_paths.get("pins", ""), bucket),
+        "processed_shaft_uri": get_public_url(uploaded_paths.get("shafts", ""), bucket),
         "is_valid": capture.is_valid,
         "areas_detected": capture.areas_detected,
         "pins_detected": capture.pins_detected,
@@ -258,17 +285,21 @@ def _create_defects(
 
 def create_batch(request: CreateBatchRequest) -> Dict[str, Any]:
     """
-    Cria um novo lote com todas as capturas e defeitos.
+    Cria um novo lote a partir das imagens no cache.
+    
+    - Lê imagens do cache em memória
+    - Faz upload direto para o bucket permanente
+    - Cria registros no banco de dados
+    - Limpa o cache após conclusão
     
     Args:
         request: Dados do lote a criar
     
     Returns:
         Dicionário com success, message, batch_id, métricas
-    
-    Raises:
-        HTTPException: Se erro na criação
     """
+    cache = get_image_cache()
+    
     try:
         print(f"\n{'='*80}\n📦 Criando lote: {request.name}\n{'='*80}")
         
@@ -281,19 +312,27 @@ def create_batch(request: CreateBatchRequest) -> Dict[str, Any]:
         # Extrair timestamp do primeiro arquivo
         timestamp = request.captures[0].original_uri.split('/')[0]
         
-        # Mover arquivos do bucket temporário para o permanente
-        print(f"\n📁 Movendo arquivos...")
-        moved_captures = []
+        batch = cache.get_batch(timestamp)
+        if not batch:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Lote não encontrado no cache: {timestamp}"
+            )
+        
+        print(f"\n📤 Fazendo upload para storage permanente...")
+        uploaded_paths_map: Dict[str, Dict[str, str]] = {}
         
         for capture in request.captures:
-            if _move_capture_files(capture):
-                moved_captures.append(capture)
-        
-        if len(moved_captures) != len(request.captures):
-            raise HTTPException(
-                status_code=500,
-                detail=f"Erro ao mover arquivos. Movidos: {len(moved_captures)}/{len(request.captures)}"
-            )
+            cached_img = cache.get_image(timestamp, capture.sha256)
+            if not cached_img:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Imagem não encontrada no cache: {capture.sha256}"
+                )
+            
+            print(f"\n   📷 {capture.filename}")
+            paths = _upload_cached_image_to_permanent(cached_img, timestamp)
+            uploaded_paths_map[capture.sha256] = paths
         
         # Calcular métricas
         total_captures = len(request.captures)
@@ -320,23 +359,22 @@ def create_batch(request: CreateBatchRequest) -> Dict[str, Any]:
         supabase = get_supabase()
         defect_types_result = supabase.table("defect_types").select("id, code").execute()
         defect_types_map = {
-            dt["code"]: dt["id"] 
+            dt["code"]: dt["id"]
             for dt in defect_types_result.data
         } if defect_types_result.data else {}
         
         # Criar capturas, compartimentos e defeitos
         for capture in request.captures:
-            capture_id = _create_capture_record(batch_id, capture)
+            uploaded_paths = uploaded_paths_map[capture.sha256]
+            capture_id = _create_capture_record(batch_id, capture, uploaded_paths)
             print(f"   ✅ Capture: {capture.filename} ({capture_id})")
             
             compartments_map = _create_compartments(capture_id, capture)
             _create_defects(capture_id, capture, compartments_map, defect_types_map)
         
-        # Deletar arquivos temporários
-        print(f"\n🗑️ Deletando temporários...")
-        delete_success = delete_folder(timestamp, settings.SUPABASE_BUCKET_TEMP)
-        if delete_success:
-            print(f"   ✅ Pasta {timestamp} deletada")
+        print(f"\n🧹 Limpando cache...")
+        cache.clear_batch(timestamp)
+        print(f"   ✅ Cache do lote {timestamp} liberado")
         
         print(f"\n{'='*80}\n✅ LOTE CRIADO COM SUCESSO!\n{'='*80}\n")
         
@@ -370,33 +408,29 @@ def reject_batch(timestamp: str) -> Dict[str, Any]:
     
     Returns:
         Dicionário com success, message, timestamp
-    
-    Raises:
-        HTTPException: Se erro ao deletar
     """
+    cache = get_image_cache()
+    
     try:
         print(f"\n{'='*80}\n❌ Rejeitando lote: {timestamp}\n{'='*80}")
-        print(f"\n🗑️ Deletando arquivos...")
         
-        delete_success = delete_folder(timestamp, settings.SUPABASE_BUCKET_TEMP)
+        batch = cache.get_batch(timestamp)
+        if not batch:
+            print(f"   ⚠️ Lote não encontrado no cache (pode já ter sido limpo)")
+        else:
+            memory_mb = batch.memory_estimate_mb
+            print(f"\n🧹 Limpando cache ({memory_mb:.2f} MB)...")
+            cache.clear_batch(timestamp)
+            print(f"   ✅ Cache do lote {timestamp} liberado")
         
-        if not delete_success:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Erro ao deletar lote {timestamp}"
-            )
-        
-        print(f"   ✅ Pasta {timestamp} deletada")
         print(f"\n{'='*80}\n✅ LOTE REJEITADO!\n{'='*80}\n")
         
         return {
             "success": True,
-            "message": f"Lote {timestamp} rejeitado e deletado",
+            "message": f"Lote {timestamp} rejeitado",
             "timestamp": timestamp
         }
     
-    except HTTPException:
-        raise
     except Exception as e:
         print(f"\n❌ Erro: {str(e)}")
         raise HTTPException(
