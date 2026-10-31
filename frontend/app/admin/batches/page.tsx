@@ -83,44 +83,44 @@ export default function LotesPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
+      <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
-          <Loader2 className="h-12 w-12 animate-spin text-blue-600 mx-auto mb-4" />
-          <p className="text-gray-600 font-medium">Carregando lotes...</p>
+          <Loader2 className="h-12 w-12 animate-spin text-signal mx-auto mb-4" />
+          <p className="text-muted-foreground font-medium">Carregando lotes...</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-white p-4 sm:p-6 lg:p-8">
+    <div className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
       {/* Header com Breadcrumb */}
       <div className="mb-8">
-        <div className="flex items-center gap-2 text-xs font-medium text-gray-500 mb-3 tracking-wider">
+        <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground mb-3 tracking-wider">
           <span>ADMIN</span>
-          <ChevronRight className="h-3 w-3 text-gray-500"/>
-          <span className="text-gray-700">LOTES</span>
+          <ChevronRight className="h-3 w-3 text-muted-foreground"/>
+          <span className="text-foreground">LOTES</span>
         </div>
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Gerenciamento de Lotes</h1>
-        <p className="text-gray-600 text-sm">Visualize e gerencie todos os lotes de imagens processados pelo sistema</p>
+        <h1 className="text-3xl font-bold text-foreground mb-2">Gerenciamento de Lotes</h1>
+        <p className="text-muted-foreground text-sm">Visualize e gerencie todos os lotes de imagens processados pelo sistema</p>
       </div>
 
       {error && (
-        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+        <div className="mb-6 p-4 bg-danger/10 border border-danger/30 rounded-lg text-danger-emphasis">
           <p className="font-medium">Erro ao carregar dados</p>
           <p className="text-sm">{error}</p>
         </div>
       )}
 
       {/* Table Card */}
-      <Card className="border border-gray-200 shadow-sm">
+      <Card className="border border-border shadow-sm">
         <CardContent className="p-0">
           {/* Table Header com Search */}
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 px-6 py-4 border-b border-gray-200">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 px-6 py-4 border-b border-border">
             <div className="flex items-center gap-2">
-              <h2 className="text-base font-semibold text-gray-900">
+              <h2 className="text-base font-semibold text-foreground">
                 Todos os Lotes
-                <span className="ml-2 text-sm font-normal text-gray-500">
+                <span className="ml-2 text-sm font-normal text-muted-foreground">
                   ({filteredBatches.length})
                 </span>
               </h2>
@@ -128,13 +128,13 @@ export default function LotesPage() {
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
               {/* Search */}
               <div className="relative w-full sm:w-64">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
                   type="text"
                   placeholder="Buscar lotes..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10 h-9 border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                  className="pl-10 h-9 border-input focus:border-ring focus:ring-1 focus:ring-ring"
                 />
               </div>
             </div>
@@ -144,50 +144,50 @@ export default function LotesPage() {
           <div className="overflow-x-auto">
             <Table className="min-w-[900px]">
               <TableHeader>
-                <TableRow className="hover:bg-transparent border-b border-gray-200">
-                  <TableHead className="font-semibold text-gray-700 text-xs w-[200px] pl-6">Código</TableHead>
-                  <TableHead className="font-semibold text-gray-700 text-xs w-[280px]">Descrição</TableHead>
-                  <TableHead className="font-semibold text-gray-700 text-xs w-[100px] text-center">Imagens</TableHead>
-                  <TableHead className="font-semibold text-gray-700 text-xs w-[100px] text-center">Defeitos</TableHead>
-                  <TableHead className="font-semibold text-gray-700 text-xs w-[110px] text-center">Qualidade</TableHead>
-                  <TableHead className="font-semibold text-gray-700 text-xs w-[120px] text-center">Data</TableHead>
-                  <TableHead className="font-semibold text-gray-700 text-xs w-[120px] text-center pr-6">Ações</TableHead>
+                <TableRow className="hover:bg-transparent border-b border-border">
+                  <TableHead className="font-semibold text-foreground text-xs w-[200px] pl-6">Código</TableHead>
+                  <TableHead className="font-semibold text-foreground text-xs w-[280px]">Descrição</TableHead>
+                  <TableHead className="font-semibold text-foreground text-xs w-[100px] text-center">Imagens</TableHead>
+                  <TableHead className="font-semibold text-foreground text-xs w-[100px] text-center">Defeitos</TableHead>
+                  <TableHead className="font-semibold text-foreground text-xs w-[110px] text-center">Qualidade</TableHead>
+                  <TableHead className="font-semibold text-foreground text-xs w-[120px] text-center">Data</TableHead>
+                  <TableHead className="font-semibold text-foreground text-xs w-[120px] text-center pr-6">Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredBatches.map((batch) => (
                   <TableRow 
                     key={batch.id} 
-                    className="hover:bg-gray-50 border-b border-gray-100 last:border-0"
+                    className="hover:bg-muted border-b border-border last:border-0"
                   >
-                    <TableCell className="font-medium text-sm text-gray-900 pl-6">
+                    <TableCell className="font-medium text-sm text-foreground pl-6">
                       {batch.name}
                     </TableCell>
-                    <TableCell className="text-sm text-gray-600">
+                    <TableCell className="text-sm text-muted-foreground">
                       {batch.description || '-'}
                     </TableCell>
-                    <TableCell className="text-sm text-gray-700 text-center">
+                    <TableCell className="text-sm text-foreground text-center">
                       <div className="flex flex-col items-center">
-                        <span className="font-semibold">{batch.total_captures}</span>
+                        <span className="font-semibold tabular-nums">{batch.total_captures}</span>
                       </div>
                     </TableCell>
                     <TableCell className="text-sm text-center">
                       <div className="flex flex-col items-center">
-                        <span className="font-semibold">{batch.total_defects}</span>
+                        <span className="font-semibold tabular-nums">{batch.total_defects}</span>
                       </div>
                     </TableCell>
                     <TableCell className="text-sm text-center">
                       <div className="flex flex-col items-center">
-                        <span className={`font-semibold ${
-                          (batch.quality_score || 0) >= 80 ? 'text-green-700' :
-                          (batch.quality_score || 0) >= 60 ? 'text-yellow-600' :
-                          'text-red-700'
+                        <span className={`font-semibold tabular-nums ${
+                          (batch.quality_score || 0) >= 80 ? 'text-success-emphasis' :
+                          (batch.quality_score || 0) >= 60 ? 'text-warning-emphasis' :
+                          'text-danger-emphasis'
                         }`}>
                           {formatQualityScore(batch.quality_score)}
                         </span>
                       </div>
                     </TableCell>
-                    <TableCell className="text-sm text-gray-700 text-center">
+                    <TableCell className="text-sm text-foreground text-center">
                       {formatDate(batch.created_at)}
                     </TableCell>
                     <TableCell className="text-center pr-6">
@@ -195,24 +195,24 @@ export default function LotesPage() {
                         <Button
                           size="sm"
                           variant="ghost"
-                          className="h-8 w-8 p-0 hover:bg-blue-50"
+                          className="h-8 w-8 p-0 hover:bg-accent"
                           onClick={() => router.push(`/admin/batches/${batch.id}`)}
                           title="Ver detalhes"
                         >
-                          <Eye className="h-4 w-4 text-blue-700" />
+                          <Eye className="h-4 w-4 text-signal" />
                         </Button>
                         <Button
                           size="sm"
                           variant="ghost"
-                          className="h-8 w-8 p-0 hover:bg-red-50"
+                          className="h-8 w-8 p-0 hover:bg-danger/10"
                           onClick={() => handleDelete(batch.id, batch.name)}
                           disabled={deleting === batch.id}
                           title="Deletar lote"
                         >
                           {deleting === batch.id ? (
-                            <Loader2 className="h-4 w-4 text-red-600 animate-spin" />
+                            <Loader2 className="h-4 w-4 text-danger-emphasis animate-spin" />
                           ) : (
-                            <Trash2 className="h-4 w-4 text-red-700" />
+                            <Trash2 className="h-4 w-4 text-danger-emphasis" />
                           )}
                         </Button>
                       </div>
@@ -226,11 +226,11 @@ export default function LotesPage() {
           {/* Empty State */}
           {filteredBatches.length === 0 && !loading && (
             <div className="flex flex-col items-center justify-center py-16 px-4">
-              <Search className="h-12 w-12 text-gray-300 mb-4" />
-              <h3 className="text-base font-semibold text-gray-900 mb-2">
+              <Search className="h-12 w-12 text-muted-foreground mb-4" />
+              <h3 className="text-base font-semibold text-foreground mb-2">
                 Nenhum lote encontrado
               </h3>
-              <p className="text-sm text-gray-600 text-center">
+              <p className="text-sm text-muted-foreground text-center">
                 {searchTerm ? 'Tente ajustar sua busca' : 'Processe alguns lotes para começar'}
               </p>
             </div>

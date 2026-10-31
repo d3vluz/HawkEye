@@ -27,13 +27,13 @@ export default function QualityCharts({ data }: QualityChartsProps) {
   const validEntry = data.validityDistribution[0] || {
     value: 0,
     name: 'Válidas',
-    color: '#10b981'
+    color: 'var(--color-success)'
   };
 
   const incorrectEntry = data.validityDistribution[1] || {
     value: 0,
     name: 'Com Defeito',
-    color: '#ef4444'
+    color: 'var(--color-danger)'
   };
 
   const total = validEntry.value + incorrectEntry.value;
@@ -45,36 +45,37 @@ export default function QualityCharts({ data }: QualityChartsProps) {
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-6">
         <Card className="p-6 h-[500px]">
-          <h3 className="text-lg font-semibold text-slate-900 mb-4">Distribuição de Erros</h3>
-          <ResponsiveContainer width="100%" height={CHART_DRAWING_AREA}> 
-            <BarChart 
-              data={data.errorDistribution} 
+          <h3 className="text-lg font-semibold text-foreground mb-4">Distribuição de Erros</h3>
+          <ResponsiveContainer width="100%" height={CHART_DRAWING_AREA}>
+            <BarChart
+              data={data.errorDistribution}
               layout="vertical"
               margin={{ top: 5, right: 20, left: 0, bottom: 5 }}
             >
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-              
-              <XAxis 
-                type="number" 
-                stroke="#94a3b8" 
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+
+              <XAxis
+                type="number"
+                stroke="var(--muted-foreground)"
               />
-              <YAxis 
-                dataKey="name" 
-                type="category" 
-                stroke="#94a3b8" 
+              <YAxis
+                dataKey="name"
+                type="category"
+                stroke="var(--muted-foreground)"
                 width={100}
               />
-              
+
               <Tooltip
-                contentStyle={{ backgroundColor: "#e6e6e6", border: "none", borderRadius: "8px", color: "#000000" }}
+                cursor={{ fill: "var(--accent)" }}
+                contentStyle={{ backgroundColor: "var(--popover)", border: "1px solid var(--border)", borderRadius: "8px", color: "var(--popover-foreground)" }}
               />
-              <Bar dataKey="value" fill="#193cb8" radius={[0, 6, 6, 0]} />
+              <Bar dataKey="value" fill="var(--chart-1)" radius={[0, 6, 6, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </Card>
 
         <Card className="p-6 h-[500px]">
-          <h3 className="text-lg font-semibold text-slate-900 mb-4">Imagens Válidas</h3>
+          <h3 className="text-lg font-semibold text-foreground mb-4">Imagens Válidas</h3>
           <div className="relative" style={{ height: CHART_DRAWING_AREA }}>
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
@@ -85,7 +86,7 @@ export default function QualityCharts({ data }: QualityChartsProps) {
                   innerRadius={70}
                   outerRadius={110}
                   paddingAngle={5} 
-                  fill="#8884d8"
+                  fill="var(--chart-1)"
                   dataKey="value"
                   labelLine={false}
                 >
@@ -93,38 +94,41 @@ export default function QualityCharts({ data }: QualityChartsProps) {
                     <Cell key={`cell-${index}`} fill={entry.color} />
                   ))}
                 </Pie>
-                <Tooltip formatter={(value) => `${value}%`} />
+                <Tooltip
+                  formatter={(value) => `${value}%`}
+                  contentStyle={{ backgroundColor: "var(--popover)", border: "1px solid var(--border)", borderRadius: "8px", color: "var(--popover-foreground)" }}
+                />
               </PieChart>
             </ResponsiveContainer>
 
             <div
               className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none"
             >
-              <p className="text-4xl font-bold text-slate-900">
+              <p className="text-4xl font-bold text-foreground tabular-nums">
                 {validPercentage}%
               </p>
-              <p className="text-sm text-slate-500">
+              <p className="text-sm text-muted-foreground">
                 Válidos
               </p>
             </div>
           </div>
-          
+
           <div className="mt-4 flex justify-around">
             <div className="text-center">
-              <div className="flex items-center justify-center text-sm font-semibold">
+              <div className="flex items-center justify-center text-sm font-semibold text-foreground">
                 <span className="h-3 w-3 rounded-full mr-2" style={{ backgroundColor: validEntry.color }}></span>
                 Válidas
               </div>
-              <p className="text-g font-semibold text-slate-700">
+              <p className="text-sm font-semibold text-muted-foreground tabular-nums">
                 {validPercentage}%
               </p>
             </div>
             <div className="text-center">
-              <div className="flex items-center justify-center text-sm font-semibold">
+              <div className="flex items-center justify-center text-sm font-semibold text-foreground">
                 <span className="h-3 w-3 rounded-full mr-2" style={{ backgroundColor: incorrectEntry.color }}></span>
                 Inválidas
               </div>
-              <p className="text-g font-semibold text-slate-700">
+              <p className="text-sm font-semibold text-muted-foreground tabular-nums">
                 {incorrectPercentage}%
               </p>
             </div>

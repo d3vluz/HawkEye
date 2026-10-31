@@ -39,9 +39,9 @@ const CustomErrorTooltip = ({ active, payload }: { active?: boolean; payload?: {
     if (active && payload && payload.length) {
         const data = payload[0].payload
         return (
-            <div className="p-3 bg-slate-900 border border-slate-700 rounded-lg shadow-lg text-white">
+            <div className="p-3 bg-popover border border-border rounded-lg shadow-lg text-popover-foreground">
                 <p className="text-sm font-semibold mb-1">{data.name}</p>
-                <p className="text-lg font-bold text-indigo-400">{data.count} ocorrências</p>
+                <p className="text-lg font-bold text-primary-emphasis">{data.count} ocorrências</p>
             </div>
         )
     }
@@ -195,8 +195,8 @@ export default function BatchDetailPage({ params }: { params: Promise<{ id: stri
         return (
             <div className="min-h-screen flex items-center justify-center">
                 <div className="text-center">
-                    <Loader2 className="h-12 w-12 animate-spin text-blue-600 mx-auto mb-4" />
-                    <p className="text-gray-600 font-medium">Carregando detalhes do lote...</p>
+                    <Loader2 className="h-12 w-12 animate-spin text-signal mx-auto mb-4" />
+                    <p className="text-muted-foreground font-medium">Carregando detalhes do lote...</p>
                 </div>
             </div>
         )
@@ -206,9 +206,9 @@ export default function BatchDetailPage({ params }: { params: Promise<{ id: stri
         return (
             <div className="min-h-screen flex items-center justify-center">
                 <div className="text-center">
-                    <AlertTriangle className="h-12 w-12 text-red-600 mx-auto mb-4" />
-                    <p className="text-gray-900 font-medium mb-2">Erro ao carregar lote</p>
-                    <p className="text-gray-600 text-sm">{error}</p>
+                    <AlertTriangle className="h-12 w-12 text-danger-emphasis mx-auto mb-4" />
+                    <p className="text-foreground font-medium mb-2">Erro ao carregar lote</p>
+                    <p className="text-muted-foreground text-sm">{error}</p>
                     <Button onClick={() => router.back()} className="mt-4">
                         <ArrowLeft className="h-4 w-4 mr-2" />
                         Voltar
@@ -239,32 +239,32 @@ export default function BatchDetailPage({ params }: { params: Promise<{ id: stri
 
                 <div className="flex items-start justify-between">
                     <div className="flex-1">
-                        <div className="flex items-center gap-2 text-xs font-medium text-gray-500 mb-3 tracking-wider">
+                        <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground mb-3 tracking-wider">
                             <span>ADMIN</span>
-                            <ChevronRight className="h-3 w-3 text-gray-500" />
+                            <ChevronRight className="h-3 w-3 text-muted-foreground" />
                             <span>LOTES</span>
-                            <ChevronRight className="h-3 w-3 text-gray-500" />
-                            <span className="text-gray-700">DETALHES</span>
+                            <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                            <span className="text-foreground">DETALHES</span>
                         </div>
 
                         {/* Título */}
                         <div className="flex items-center gap-4 mb-3">
-                            <h1 className="text-3xl font-bold text-gray-900">{batch.name}</h1>
+                            <h1 className="text-3xl font-bold text-foreground">{batch.name}</h1>
                             {/* @TODO: revisar a necessidade de um badge */}
                         </div>
 
                         {/* Descrição */}
                         {batch.description && (
-                            <p className="text-gray-600 text-base my-3 max-w-2xl">
+                            <p className="text-muted-foreground text-base my-3 max-w-2xl">
                                 {batch.description}
                             </p>
                         )}
 
                         {/* Data de criação */}
-                        <p className="text-gray-400 text-xs mt-3">
+                        <p className="text-muted-foreground text-xs mt-3">
                             Processado em {formatDate(batch.created_at)}
                         </p>
-                        <p className="text-gray-400 text-[10px] mt-2">
+                        <p className="text-muted-foreground text-[10px] mt-2">
                             {batch.id}
                         </p>
                     </div>
@@ -274,7 +274,7 @@ export default function BatchDetailPage({ params }: { params: Promise<{ id: stri
                         <Button
                             onClick={handleDownloadImages}
                             disabled={downloading}
-                            className="bg-blue-600 hover:bg-blue-700"
+                            className="bg-primary hover:bg-primary/90"
                         >
                             {downloading ? (
                                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -289,59 +289,59 @@ export default function BatchDetailPage({ params }: { params: Promise<{ id: stri
 
             {/* Stats Cards */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-                <Card className="border-gray-200">
+                <Card className="border-border">
                     <CardContent className="p-6">
                         <div className="flex items-center justify-between">
                             <div>
-                                <p className="text-sm text-gray-600">Capturas Totais</p>
-                                <p className="text-3xl font-bold text-gray-900 mt-1">{batch.total_captures}</p>
+                                <p className="text-sm text-muted-foreground">Capturas Totais</p>
+                                <p className="text-3xl font-bold text-foreground mt-1 tabular-nums">{batch.total_captures}</p>
                             </div>
-                            <div className="bg-blue-50 p-3 rounded-lg">
-                                <ImageIcon className="h-6 w-6 text-blue-600" />
+                            <div className="bg-signal/10 p-3 rounded-lg">
+                                <ImageIcon className="h-6 w-6 text-signal" />
                             </div>
                         </div>
                     </CardContent>
                 </Card>
 
-                <Card className="border-gray-200">
+                <Card className="border-border">
                     <CardContent className="p-6">
                         <div className="flex items-center justify-between">
                             <div>
-                                <p className="text-sm text-gray-600">Válidas (Conforme)</p>
-                                <p className="text-3xl font-bold text-green-600 mt-1">{batch.valid_captures}</p>
+                                <p className="text-sm text-muted-foreground">Válidas (Conforme)</p>
+                                <p className="text-3xl font-bold text-success-emphasis mt-1 tabular-nums">{batch.valid_captures}</p>
                             </div>
-                            <div className="bg-green-50 p-3 rounded-lg">
-                                <CheckCircle className="h-6 w-6 text-green-600" />
+                            <div className="bg-success/10 p-3 rounded-lg">
+                                <CheckCircle className="h-6 w-6 text-success-emphasis" />
                             </div>
                         </div>
                     </CardContent>
                 </Card>
 
-                <Card className="border-gray-200">
+                <Card className="border-border">
                     <CardContent className="p-6">
                         <div className="flex items-center justify-between">
                             <div>
-                                <p className="text-sm text-gray-600">Inválidas</p>
-                                <p className="text-3xl font-bold text-red-600 mt-1">{batch.invalid_captures}</p>
+                                <p className="text-sm text-muted-foreground">Inválidas</p>
+                                <p className="text-3xl font-bold text-danger-emphasis mt-1 tabular-nums">{batch.invalid_captures}</p>
                             </div>
-                            <div className="bg-red-50 p-3 rounded-lg">
-                                <XCircle className="h-6 w-6 text-red-600" />
+                            <div className="bg-danger/10 p-3 rounded-lg">
+                                <XCircle className="h-6 w-6 text-danger-emphasis" />
                             </div>
                         </div>
                     </CardContent>
                 </Card>
 
-                <Card className="border-gray-200">
+                <Card className="border-border">
                     <CardContent className="p-6">
                         <div className="flex items-center justify-between">
                             <div>
-                                <p className="text-sm text-gray-600">Score de Qualidade</p>
-                                <p className="text-3xl font-bold text-gray-900 mt-1">
+                                <p className="text-sm text-muted-foreground">Score de Qualidade</p>
+                                <p className="text-3xl font-bold text-foreground mt-1 tabular-nums">
                                     {(batch.quality_score || 0).toFixed(1)}%
                                 </p>
                             </div>
-                            <div className="bg-purple-50 p-3 rounded-lg">
-                                <FileText className="h-6 w-6 text-purple-600" />
+                            <div className="bg-signal/10 p-3 rounded-lg">
+                                <FileText className="h-6 w-6 text-signal" />
                             </div>
                         </div>
                     </CardContent>
@@ -351,7 +351,7 @@ export default function BatchDetailPage({ params }: { params: Promise<{ id: stri
             {/* Análise de Defeitos */}
             {batch.total_defects > 0 && (
                 <div className="grid grid-cols-1 gap-6 mb-8">
-                    <Card className="border-gray-200">
+                    <Card className="border-border">
                         <CardHeader>
                             <CardTitle>Análise de Defeitos e Erros</CardTitle>
                             <CardDescription>Distribuição de ocorrências de defeitos por tipo.</CardDescription>
@@ -359,25 +359,25 @@ export default function BatchDetailPage({ params }: { params: Promise<{ id: stri
                         <CardContent>
                             {/* Indicadores Chave */}
                             <div className="grid grid-cols-3 gap-4 mb-6">
-                                <div className="p-4 bg-red-50 rounded-lg border border-red-100">
-                                    <p className="text-xs text-red-600 font-medium">Ocorrências Totais</p>
-                                    <p className="text-2xl font-bold text-red-900">{batch.total_defects}</p>
+                                <div className="p-4 bg-danger/10 rounded-lg border border-danger/20">
+                                    <p className="text-xs text-danger-emphasis font-medium">Ocorrências Totais</p>
+                                    <p className="text-2xl font-bold text-danger-emphasis">{batch.total_defects}</p>
                                 </div>
-                                <div className="p-4 bg-indigo-50 rounded-lg border border-indigo-100">
-                                    <p className="text-xs text-indigo-600 font-medium">Tipos Distintos de Defeito</p>
-                                    <p className="text-2xl font-bold text-indigo-900">{totalDefectTypes}</p>
+                                <div className="p-4 bg-signal/10 rounded-lg border border-signal/20">
+                                    <p className="text-xs text-signal font-medium">Tipos Distintos de Defeito</p>
+                                    <p className="text-2xl font-bold text-signal">{totalDefectTypes}</p>
                                 </div>
-                                <div className="p-4 bg-gray-50 rounded-lg border border-gray-100">
-                                    <p className="text-xs text-gray-600 font-medium">Média de Erros por Captura</p>
-                                    <p className="text-2xl font-bold text-gray-900">{averageDefectsPerCapture.toFixed(2)}</p>
+                                <div className="p-4 bg-muted rounded-lg border border-border">
+                                    <p className="text-xs text-muted-foreground font-medium">Média de Erros por Captura</p>
+                                    <p className="text-2xl font-bold text-foreground">{averageDefectsPerCapture.toFixed(2)}</p>
                                 </div>
                             </div>
 
                             {/* Gráfico */}
                             {errorDistribution.length > 0 && (
                                 <div className="h-96 w-full">
-                                    <h4 className="text-base font-semibold text-slate-800 mb-3 flex items-center gap-2">
-                                        <BarChart3 className="h-4 w-4 text-slate-500" />
+                                    <h4 className="text-base font-semibold text-foreground mb-3 flex items-center gap-2">
+                                        <BarChart3 className="h-4 w-4 text-muted-foreground" />
                                         Distribuição de Ocorrências
                                     </h4>
                                     <ResponsiveContainer width="100%" height="90%">
@@ -386,11 +386,11 @@ export default function BatchDetailPage({ params }: { params: Promise<{ id: stri
                                             layout="vertical"
                                             margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
                                         >
-                                            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                                            <XAxis type="number" stroke="#94a3b8" />
-                                            <YAxis dataKey="name" type="category" stroke="#94a3b8" width={150} />
+                                            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                                            <XAxis type="number" stroke="var(--muted-foreground)" />
+                                            <YAxis dataKey="name" type="category" stroke="var(--muted-foreground)" width={150} />
                                             <Tooltip content={<CustomErrorTooltip />} />
-                                            <Bar dataKey="count" fill="#193cb8" radius={[0, 6, 6, 0]} />
+                                            <Bar dataKey="count" fill="var(--chart-1)" radius={[0, 6, 6, 0]} />
                                         </BarChart>
                                     </ResponsiveContainer>
                                 </div>
@@ -403,7 +403,7 @@ export default function BatchDetailPage({ params }: { params: Promise<{ id: stri
             {/* Galeria de Imagens */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Lista de Capturas */}
-                <Card className="lg:col-span-1 border-gray-200">
+                <Card className="lg:col-span-1 border-border">
                     <CardHeader>
                         <CardTitle>Galeria de Imagens</CardTitle>
                         <CardDescription>Imagens processadas neste lote ({batch.total_captures} total)</CardDescription>
@@ -412,7 +412,7 @@ export default function BatchDetailPage({ params }: { params: Promise<{ id: stri
 
                         {/* Seletor de Tipo */}
                         <div>
-                            <label className="text-sm font-medium text-gray-700">Tipo de Visualização</label>
+                            <label className="text-sm font-medium text-foreground">Tipo de Visualização</label>
                             <Select value={processingType} onValueChange={setProcessingType}>
                                 <SelectTrigger className="w-full mt-1">
                                     <SelectValue placeholder="Selecione o processamento" />
@@ -429,28 +429,28 @@ export default function BatchDetailPage({ params }: { params: Promise<{ id: stri
 
                         {/* Lista de Previews */}
                         <div className="flex-1">
-                            <h4 className="text-sm font-medium text-gray-700 mb-2">Todas as Capturas</h4>
+                            <h4 className="text-sm font-medium text-foreground mb-2">Todas as Capturas</h4>
                             <ScrollArea className="h-96 w-full rounded-md border p-2">
                                 <div className="flex flex-col gap-3">
                                     {captures.map((capture, index) => (
                                         <button
                                             key={capture.id}
                                             className={`w-full p-2 rounded-lg border-2 flex items-center gap-3 text-left transition-all ${selectedCapture?.id === capture.id
-                                                ? 'border-indigo-600 bg-indigo-50 shadow-md'
-                                                : 'border-transparent hover:bg-gray-100'
+                                                ? 'border-signal bg-signal/10 shadow-md'
+                                                : 'border-transparent hover:bg-muted'
                                                 }`}
                                             onClick={() => setSelectedCapture(capture)}
                                         >
-                                            <div className={`flex-shrink-0 w-12 h-12 rounded-md flex items-center justify-center ${capture.is_valid ? 'bg-green-100' : 'bg-red-100'
+                                            <div className={`flex-shrink-0 w-12 h-12 rounded-md flex items-center justify-center ${capture.is_valid ? 'bg-success/15' : 'bg-danger/15'
                                                 }`}>
-                                                <ImageIcon className={`h-5 w-5 ${capture.is_valid ? 'text-green-600' : 'text-red-600'
+                                                <ImageIcon className={`h-5 w-5 ${capture.is_valid ? 'text-success-emphasis' : 'text-danger-emphasis'
                                                     }`} />
                                             </div>
                                             <div className="flex-1">
-                                                <p className="text-sm font-semibold text-gray-900">
+                                                <p className="text-sm font-semibold text-foreground">
                                                     {capture.filename || `Captura ${index + 1}`}
                                                 </p>
-                                                <p className="text-xs text-gray-600">
+                                                <p className="text-xs text-muted-foreground">
                                                     {capture.is_valid
                                                         ? 'Válida'
                                                         : `Inválida • ${capture.defects_count || 0} defeitos`
@@ -466,7 +466,7 @@ export default function BatchDetailPage({ params }: { params: Promise<{ id: stri
                 </Card>
 
                 {/* Visualizador de Imagem */}
-                <div className="lg:col-span-2 bg-gray-900 rounded-lg min-h-[600px] relative overflow-hidden">
+                <div className="lg:col-span-2 bg-[var(--graphite-900)] rounded-lg min-h-[600px] relative overflow-hidden">
                     {selectedCapture && getCurrentImageUrl() ? (
                         <div className="relative w-full h-full min-h-[600px]">
                             <Image
@@ -479,9 +479,9 @@ export default function BatchDetailPage({ params }: { params: Promise<{ id: stri
                         </div>
                     ) : (
                         <div className="absolute inset-0 flex items-center justify-center">
-                            <div className="text-center text-gray-400 p-4">
+                            <div className="text-center text-[var(--graphite-200)] p-4">
                                 <ImageIcon className="h-16 w-16 mx-auto mb-4 opacity-50" />
-                                <p className="text-gray-500">Selecione uma captura para visualizar</p>
+                                <p className="text-[var(--graphite-200)]">Selecione uma captura para visualizar</p>
                             </div>
                         </div>
                     )}

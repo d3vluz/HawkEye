@@ -43,11 +43,11 @@ export default function AdminLayout({
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-zinc-950 transition-colors duration-300">
+    <div className="min-h-screen bg-background transition-colors duration-300">
       {/* Sidebar */}
       <aside
         className={cn(
-          "fixed left-0 top-0 z-40 h-screen bg-gray-900 text-white transition-all duration-300 flex flex-col",
+          "fixed left-0 top-0 z-40 h-screen bg-sidebar text-sidebar-foreground border-r border-sidebar-border transition-all duration-300 flex flex-col",
           sidebarOpen ? "w-64" : "w-16"
         )}
       >
@@ -81,7 +81,7 @@ export default function AdminLayout({
                   size="sm"
                   onClick={() => setSidebarOpen(!sidebarOpen)}
                   className={cn(
-                    "text-gray-400 hover:text-white hover:bg-gray-800 transition-opacity duration-150",
+                    "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-opacity duration-150",
                     sidebarOpen ? "opacity-100 delay-300" : "opacity-0 delay-0"
                   )}
                 >
@@ -107,16 +107,16 @@ export default function AdminLayout({
           {/* Divisória */}
           {sidebarOpen && (
             <div className="px-4">
-              <div className="h-px bg-gray-800" />
+              <div className="h-px bg-sidebar-border" />
             </div>
           )}
 
           {/* Perfil do Admin */}
           {sidebarOpen && (
             <div className="px-4 py-4 flex items-center gap-3">
-              <Avatar className="h-12 w-12 border-2 border-gray-700">
+              <Avatar className="h-12 w-12 border-2 border-sidebar-border">
                 <AvatarImage src={adminUser.avatar} alt={adminUser.name} />
-                <AvatarFallback className="bg-gray-700 text-white text-sm">
+                <AvatarFallback className="bg-sidebar-accent text-sidebar-foreground text-sm">
                   {adminUser.name.split(' ').map(n => n[0]).join('')}
                 </AvatarFallback>
               </Avatar>
@@ -124,13 +124,13 @@ export default function AdminLayout({
                 "flex-1 min-w-0 transition-opacity duration-150",
                 sidebarOpen ? "opacity-100 delay-300" : "opacity-0 delay-0"
               )}>
-                <p className="text-sm font-semibold text-white truncate">
+                <p className="text-sm font-semibold text-sidebar-foreground truncate">
                   {adminUser.name}
                 </p>
-                <p className="text-xs text-gray-400 truncate">
+                <p className="text-xs text-sidebar-foreground/60 truncate">
                   {adminUser.role}
                 </p>
-                <p className="text-xs text-gray-500 truncate">
+                <p className="text-xs text-sidebar-foreground/50 truncate">
                   {adminUser.username}
                 </p>
               </div>
@@ -141,7 +141,7 @@ export default function AdminLayout({
         {/* Divisória */}
         {sidebarOpen && (
           <div className="px-4">
-            <div className="h-px bg-gray-800" />
+            <div className="h-px bg-sidebar-border" />
           </div>
         )}
 
@@ -157,8 +157,8 @@ export default function AdminLayout({
                   "flex items-center rounded-lg py-2.5 text-sm font-medium transition-colors",
                   sidebarOpen ? "gap-3 px-3" : "justify-center px-0",
                   isActive
-                    ? "bg-gray-800 text-white"
-                    : "text-gray-400 hover:bg-gray-800 hover:text-white"
+                    ? "bg-sidebar-accent text-sidebar-foreground"
+                    : "text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground"
                 )}
               >
                 <item.icon className="h-5 w-5 flex-shrink-0" />
@@ -176,14 +176,14 @@ export default function AdminLayout({
         </nav>
 
         {/* Footer Actions (Theme + Logout) */}
-        <div className="p-4 border-t border-gray-800 space-y-2">
+        <div className="p-4 border-t border-sidebar-border space-y-2">
           
           {/* Botão de Tema */}
           {mounted && (
             <button
               onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
               className={cn(
-                "flex w-full items-center rounded-lg py-2.5 text-sm font-medium text-gray-400 transition-colors hover:bg-gray-800 hover:text-white",
+                "flex w-full items-center rounded-lg py-2.5 text-sm font-medium text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground",
                 sidebarOpen ? "gap-3 px-3" : "justify-center px-0"
               )}
             >
@@ -208,7 +208,7 @@ export default function AdminLayout({
           <button
             onClick={handleLogout}
             className={cn(
-              "flex w-full items-center rounded-lg py-2.5 text-sm font-medium text-gray-400 transition-colors hover:bg-gray-800 hover:text-white",
+              "flex w-full items-center rounded-lg py-2.5 text-sm font-medium text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground",
               sidebarOpen ? "gap-3 px-3" : "justify-center px-0"
             )}
           >

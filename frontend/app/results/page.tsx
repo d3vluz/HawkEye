@@ -396,13 +396,13 @@ export default function ResultsPage() {
                         
                         {/* 1. Grid Unificado */}
                         <div className="grid grid-cols-2 gap-3">
-                          <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900">
+                          <div className="p-3 rounded-lg bg-muted/40 border border-border">
                             <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Total Pins</p>
-                            <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{selectedImage.pins_count}</p>
+                            <p className="text-2xl font-bold text-foreground tabular-nums">{selectedImage.pins_count}</p>
                           </div>
-                          <div className="p-3 rounded-lg bg-purple-50 dark:bg-purple-950/20 border border-purple-100 dark:border-purple-900">
+                          <div className="p-3 rounded-lg bg-muted/40 border border-border">
                             <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Áreas</p>
-                            <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">{selectedImage.areas_count}</p>
+                            <p className="text-2xl font-bold text-foreground tabular-nums">{selectedImage.areas_count}</p>
                           </div>
 
                           {/* Título Metrologia Pins */}
@@ -597,7 +597,7 @@ export default function ResultsPage() {
               </div>
               <div className="flex flex-col gap-2 w-full sm:w-auto">
                 <Button
-                  className="w-full bg-green-600 hover:bg-green-700 text-white h-9"
+                  className="w-full bg-success text-success-foreground hover:bg-success/90 h-9"
                   onClick={handleAprovarLote}
                   disabled={isSaving}
                 >

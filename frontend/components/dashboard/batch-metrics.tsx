@@ -15,17 +15,17 @@ interface BatchMetricsProps {
 export default function BatchMetrics({ data }: BatchMetricsProps) {
   return (
     <Card className="p-6 mt-8">
-      <h3 className="text-lg font-semibold text-slate-900 mb-4">Lotes Recentes</h3>
+      <h3 className="text-lg font-semibold text-foreground mb-4">Lotes Recentes</h3>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="bg-slate-50 border-b border-slate-200">
+          <thead className="bg-muted border-b border-border">
             <tr>
-              <th className="px-4 py-3 text-left font-semibold text-slate-900">Lote</th>
-              <th className="px-4 py-3 text-right font-semibold text-slate-900">Total de Imagens</th>
-              <th className="px-4 py-3 text-right font-semibold text-slate-900">Imagens Válidas</th>
-              <th className="px-4 py-3 text-right font-semibold text-slate-900">Taxa de Sucesso</th>
-              <th className="px-4 py-3 text-right font-semibold text-slate-900">Defeitos</th>
-              <th className="px-4 py-3 text-right font-semibold text-slate-900">Score de Qualidade</th>
+              <th className="px-4 py-3 text-left font-semibold text-foreground">Lote</th>
+              <th className="px-4 py-3 text-right font-semibold text-foreground">Total de Imagens</th>
+              <th className="px-4 py-3 text-right font-semibold text-foreground">Imagens Válidas</th>
+              <th className="px-4 py-3 text-right font-semibold text-foreground">Taxa de Sucesso</th>
+              <th className="px-4 py-3 text-right font-semibold text-foreground">Defeitos</th>
+              <th className="px-4 py-3 text-right font-semibold text-foreground">Score de Qualidade</th>
             </tr>
           </thead>
           <tbody>
@@ -35,19 +35,19 @@ export default function BatchMetrics({ data }: BatchMetricsProps) {
 
               const scoreColor =
                 batch.qualityScore >= 90
-                  ? "text-green-600"
+                  ? "text-success-emphasis"
                   : batch.qualityScore >= 70
-                    ? "text-yellow-600"
-                    : "text-red-600"
+                    ? "text-warning-emphasis"
+                    : "text-danger-emphasis"
 
               return (
-                <tr key={idx} className="border-b border-slate-200 hover:bg-slate-50 transition-colors">
-                  <td className="px-4 py-3 font-medium text-slate-900">{batch.name}</td>
-                  <td className="px-4 py-3 text-right text-slate-700">{batch.totalCaptures}</td>
-                  <td className="px-4 py-3 text-right text-slate-700">{batch.validCaptures}</td>
-                  <td className="px-4 py-3 text-right text-slate-700 font-medium">{successRate}%</td>
-                  <td className="px-4 py-3 text-right text-slate-700">{batch.defectCount}</td>
-                  <td className={`px-4 py-3 text-right font-bold ${scoreColor}`}>
+                <tr key={idx} className="border-b border-border hover:bg-muted transition-colors">
+                  <td className="px-4 py-3 font-medium text-foreground">{batch.name}</td>
+                  <td className="px-4 py-3 text-right text-muted-foreground tabular-nums">{batch.totalCaptures}</td>
+                  <td className="px-4 py-3 text-right text-muted-foreground tabular-nums">{batch.validCaptures}</td>
+                  <td className="px-4 py-3 text-right text-muted-foreground font-medium tabular-nums">{successRate}%</td>
+                  <td className="px-4 py-3 text-right text-muted-foreground tabular-nums">{batch.defectCount}</td>
+                  <td className={`px-4 py-3 text-right font-bold tabular-nums ${scoreColor}`}>
                     {batch.qualityScore?.toFixed(1) || "N/A"}
                   </td>
                 </tr>
