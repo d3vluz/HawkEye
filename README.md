@@ -1,6 +1,6 @@
 <div align="center">
   
-  <img width="250" height="250" alt="HawkEye Logo" src="https://github.com/user-attachments/assets/2ad567ef-2cbd-489a-9633-40c08706a520" />
+  ![Mockup do Projeto](assets/logo_project.png)
   <h3>HawkEye</h3>
   <p><strong>Sistema Avançado de Inspeção Visual</strong></p>
 

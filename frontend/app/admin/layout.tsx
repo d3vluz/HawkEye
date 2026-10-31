@@ -54,7 +54,10 @@ export default function AdminLayout({
         {/* Logo e Perfil */}
         <div className="flex-shrink-0">
           {/* Logo App */}
-          <div className="flex h-16 items-center justify-between px-4">
+          <div className={cn(
+            "flex h-16 items-center",
+            sidebarOpen ? "justify-between px-4" : "justify-center"
+          )}>
             {sidebarOpen ? (
               <>
                 <div className="flex items-center gap-2 py-4">
@@ -86,8 +89,8 @@ export default function AdminLayout({
                 </Button>
               </>
             ) : (
-              <div 
-                className="h-12 w-12 rounded-lg overflow-hidden cursor-pointer flex items-center justify-center"
+              <div
+                className="h-10 w-10 rounded-lg overflow-hidden cursor-pointer flex items-center justify-center"
                 onClick={() => setSidebarOpen(!sidebarOpen)}
               >
                 <Image
@@ -96,7 +99,6 @@ export default function AdminLayout({
                   width={64}
                   height={64}
                   className="object-contain"
-                  onClick={() => setSidebarOpen(!sidebarOpen)}
                 />
               </div>
             )}
@@ -152,7 +154,8 @@ export default function AdminLayout({
                 key={item.href}
                 onClick={() => router.push(item.href)}
                 className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                  "flex items-center rounded-lg py-2.5 text-sm font-medium transition-colors",
+                  sidebarOpen ? "gap-3 px-3" : "justify-center px-0",
                   isActive
                     ? "bg-gray-800 text-white"
                     : "text-gray-400 hover:bg-gray-800 hover:text-white"
@@ -179,7 +182,10 @@ export default function AdminLayout({
           {mounted && (
             <button
               onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-              className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-gray-400 transition-colors hover:bg-gray-800 hover:text-white"
+              className={cn(
+                "flex w-full items-center rounded-lg py-2.5 text-sm font-medium text-gray-400 transition-colors hover:bg-gray-800 hover:text-white",
+                sidebarOpen ? "gap-3 px-3" : "justify-center px-0"
+              )}
             >
               {theme === "dark" ? (
                 <Sun className="h-5 w-5 flex-shrink-0" />
@@ -201,7 +207,10 @@ export default function AdminLayout({
           {/* Botão de Logout */}
           <button
             onClick={handleLogout}
-            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-gray-400 transition-colors hover:bg-gray-800 hover:text-white"
+            className={cn(
+              "flex w-full items-center rounded-lg py-2.5 text-sm font-medium text-gray-400 transition-colors hover:bg-gray-800 hover:text-white",
+              sidebarOpen ? "gap-3 px-3" : "justify-center px-0"
+            )}
           >
             <LogOut className="h-5 w-5 flex-shrink-0" />
             {sidebarOpen && (

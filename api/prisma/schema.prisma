@@ -1,0 +1,67 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Batch {
+  id              String    @id @default(uuid())
+  name            String
+  description     String?
+  createdAt       DateTime  @default(now())
+  totalCaptures   Int       @default(0)
+  validCaptures   Int       @default(0)
+  invalidCaptures Int       @default(0)
+
+  captures Capture[]
+}
+
+model Capture {
+  id      String @id @default(uuid())
+  batchId String
+  batch   Batch  @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  filename          String
+  sha256            String   @unique
+  originalUri       String
+  processedUri      String?
+  processedAreasUri String?
+  processedPinsUri  String?
+  processedShaftUri String?
+
+  isValid       Boolean  @default(false)
+  areasDetected Int      @default(0)
+  pinsDetected  Int      @default(0)
+  defectsCount  Int      @default(0)
+
+  hasMissingPins    Boolean @default(false)
+  hasExtraPins      Boolean @default(false)
+  hasDamagedPins    Boolean @default(false)
+  hasWrongColorPins Boolean @default(false)
+  hasStructureDamage Boolean @default(false)
+  hasShaftDefects   Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  compartments Compartment[]
+}
+
+model Compartment {
+  id        String  @id @default(uuid())
+  captureId String
+  capture   Capture @relation(fields: [captureId], references: [id], onDelete: Cascade)
+
+  gridRow   Int
+  gridCol   Int
+  bboxX     Int
+  bboxY     Int
+  bboxWidth Int
+  bboxHeight Int
+
+  pinsCount Int     @default(0)
+  isValid   Boolean @default(false)
+  hasDefect Boolean @default(false)
+}

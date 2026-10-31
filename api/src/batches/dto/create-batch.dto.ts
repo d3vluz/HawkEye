@@ -1,0 +1,42 @@
+import { Type } from 'class-transformer';
+import { IsArray, IsBoolean, IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator';
+
+export class CompartmentDto {
+  @IsNumber() grid_row: number;
+  @IsNumber() grid_col: number;
+  @IsNumber() bbox_x: number;
+  @IsNumber() bbox_y: number;
+  @IsNumber() bbox_width: number;
+  @IsNumber() bbox_height: number;
+  @IsNumber() pins_count: number;
+  @IsBoolean() is_valid: boolean;
+  @IsBoolean() has_defect: boolean;
+}
+
+export class CaptureDto {
+  @IsString() filename: string;
+  @IsString() sha256: string;
+  @IsString() original_uri: string;
+  @IsOptional() @IsString() processed_uri?: string;
+  @IsOptional() @IsString() processed_areas_uri?: string;
+  @IsOptional() @IsString() processed_pins_uri?: string;
+  @IsOptional() @IsString() processed_shaft_uri?: string;
+  @IsBoolean() is_valid: boolean;
+  @IsNumber() areas_detected: number;
+  @IsNumber() pins_detected: number;
+  @IsNumber() defects_count: number;
+  @IsBoolean() has_missing_pins: boolean;
+  @IsBoolean() has_extra_pins: boolean;
+  @IsBoolean() has_damaged_pins: boolean;
+  @IsBoolean() has_wrong_color_pins: boolean;
+  @IsBoolean() has_structure_damage: boolean;
+  @IsBoolean() has_shaft_defects: boolean;
+  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => CompartmentDto) compartments?: CompartmentDto[];
+}
+
+export class CreateBatchDto {
+  @IsString() name: string;
+  @IsOptional() @IsString() description?: string;
+  @IsOptional() @IsString() batch_timestamp?: string;
+  @IsArray() @ValidateNested({ each: true }) @Type(() => CaptureDto) captures: CaptureDto[];
+}

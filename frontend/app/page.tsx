@@ -58,7 +58,7 @@ export default function HawkEyePage() {
     const filesToAdd = newFiles.slice(0, remainingSlots)
     const validFiles: UploadedFile[] = []
     const errors: string[] = []
-    
+
     filesToAdd.forEach((file) => {
       const err = validateFile(file)
       if (err) {
@@ -71,12 +71,12 @@ export default function HawkEyePage() {
         })
       }
     })
-    
+
     if (errors.length > 0) {
       setError(errors.join('\n'))
       setTimeout(() => setError(null), 5000)
     }
-    
+
     if (validFiles.length > 0) {
       setFiles((prev) => [...prev, ...validFiles])
       setError(null)
@@ -87,26 +87,23 @@ export default function HawkEyePage() {
     setFiles(prev => {
       const fileToRemove = prev.find(f => f.id === id)
       if (fileToRemove) {
-        URL.revokeObjectURL(fileToRemove.preview)
+        setTimeout(() => URL.revokeObjectURL(fileToRemove.preview), 1000)
       }
-
-      const newFiles = prev.filter(f => f.id !== id)
-      if (newFiles.length === 0) {
-        setViewerOpen(false)
-        setCurrentImageIndex(0)
-      } else if (currentImageIndex >= newFiles.length) {
-        setCurrentImageIndex(newFiles.length - 1)
-      }
-
-      return newFiles
+      return prev.filter(f => f.id !== id)
     })
-  }
 
-  useEffect(() => {
-    return () => {
-      files.forEach((file) => URL.revokeObjectURL(file.preview))
+    const indexToRemove = files.findIndex(f => f.id === id)
+    const newLength = files.length - 1
+
+    if (newLength === 0) {
+      setViewerOpen(false)
+      setCurrentImageIndex(0)
+    } else if (currentImageIndex >= newLength) {
+      setCurrentImageIndex(newLength - 1)
+    } else if (indexToRemove < currentImageIndex) {
+      setCurrentImageIndex(prev => prev - 1)
     }
-  }, [files])
+  }
 
   // --- Drag and Drop ---
   const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setIsDragOver(true) }
@@ -186,7 +183,7 @@ export default function HawkEyePage() {
 
       sessionStorage.setItem("processedImages", JSON.stringify(processData.results))
       sessionStorage.removeItem("usingGlobalMemory")
-      
+
       setUploadProgress("Concluído!")
       router.push("/results")
 
@@ -198,15 +195,15 @@ export default function HawkEyePage() {
       setUploadProgress("")
     }
   }
-  
+
   const currentFile = files[currentImageIndex]
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <Header />
-      
+
       <main className="flex-1 p-4 md:p-8 flex items-center justify-center">
-        <Card 
+        <Card
           className={cn(
             "w-full max-w-4xl transition-all duration-200 border-2",
             isDragOver ? "border-primary bg-primary/5 scale-[1.01]" : "border-border"
@@ -227,7 +224,7 @@ export default function HawkEyePage() {
           <CardContent className="space-y-4">
             {/* Área Principal */}
             {files.length === 0 ? (
-              <div 
+              <div
                 className="flex flex-col items-center justify-center py-16 cursor-pointer border-2 border-dashed border-muted-foreground/25 rounded-lg hover:bg-muted/50 transition-colors"
                 onClick={() => document.getElementById("file-input")?.click()}
               >
@@ -242,19 +239,19 @@ export default function HawkEyePage() {
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                 {files.map((file, index) => (
-                  <div key={file.id} className="group relative aspect-square rounded-lg overflow-hidden bg-muted border shadow-sm">
+                  <div key={file.id} className="group relative aspect-square rounded-2xl overflow-hidden bg-muted border shadow-sm hover:shadow-md transition-all">
                     <Image
                       src={file.preview}
                       alt="Preview"
                       fill
-                      className="object-cover transition-transform duration-300 group-hover:scale-110 cursor-pointer"
+                      className="object-cover transition-transform duration-500 group-hover:scale-110 cursor-pointer"
                       onClick={() => openViewer(index)}
                       unoptimized
                     />
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 pointer-events-none">
-                      <ImageIcon className="text-white w-6 h-6" />
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center gap-2 pointer-events-none">
+                      <ImageIcon className="text-white w-8 h-8 drop-shadow-md" />
                     </div>
-                    
+
                     <Button
                       size="icon"
                       variant="destructive"
@@ -300,15 +297,15 @@ export default function HawkEyePage() {
           </CardContent>
 
           <CardFooter className="flex justify-between border-t pt-6 bg-muted/20">
-            <Button 
-              variant="ghost" 
+            <Button
+              variant="ghost"
               onClick={() => { setFiles([]); setError(null); }}
               disabled={files.length === 0 || isLoading}
             >
               Limpar tudo
             </Button>
-            
-            <Button 
+
+            <Button
               onClick={handleContinue}
               disabled={files.length === 0 || isLoading}
               className="min-w-[140px]"
@@ -331,67 +328,96 @@ export default function HawkEyePage() {
 
       {/* --- Visualizador de Imagem --- */}
       {viewerOpen && currentFile && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/95 backdrop-blur-md animate-in fade-in duration-300">
           <Button
             variant="ghost"
             size="icon"
-            className="absolute top-4 right-4 z-50"
+            className="absolute top-4 right-4 z-50 text-white/70 hover:text-white hover:bg-white/20 rounded-full"
             onClick={() => setViewerOpen(false)}
           >
             <X className="h-6 w-6" />
           </Button>
 
-          {/* Navegação Esquerda */}
-          {files.length > 1 && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="absolute left-4 z-50 h-12 w-12 rounded-full bg-background/50 hover:bg-background/80"
-              onClick={prevImage}
-            >
-              <ChevronLeft className="h-6 w-6" />
-            </Button>
-          )}
-
           {/* Área da Imagem */}
-          <div className="relative w-full h-full max-w-6xl max-h-[85vh] p-4 flex flex-col items-center justify-center">
-             <div className="relative w-full h-full">
-                <Image
-                  src={currentFile.preview}
-                  alt="Visualização Ampliada"
-                  fill
-                  className="object-contain drop-shadow-2xl"
-                  unoptimized
-                />
-             </div>
-             
-             {/* Barra de Ferramentas Flutuante */}
-             <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-background/90 p-2 rounded-full border shadow-lg z-50">
-                <span className="text-sm font-medium px-3">
-                  {currentImageIndex + 1} de {files.length}
-                </span>
-                <div className="h-4 w-px bg-border" />
-                <Button 
-                  variant="ghost" 
+          <div className="relative w-full h-full max-w-7xl max-h-[100vh] sm:max-h-[90vh] p-4 flex flex-col items-center justify-center">
+
+            {/* Imagem */}
+            <div className="relative w-full h-full flex items-center justify-center">
+              <Image
+                key={currentFile.id}
+                src={currentFile.preview}
+                alt="Visualização Ampliada"
+                fill
+                className="object-contain drop-shadow-2xl"
+                unoptimized
+              />
+            </div>
+
+            {/* Controle Inferior Responsivo */}
+            <div className="absolute bottom-6 sm:bottom-10 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-background/90 p-3 px-6 rounded-full border border-white/10 shadow-2xl z-50 backdrop-blur-xl">
+
+              {/* Botão Anterior (Mobile friendly place) */}
+              {files.length > 1 && (
+                <Button
+                  variant="ghost"
                   size="icon"
-                  className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10 rounded-full"
-                  onClick={() => removeFile(currentFile.id)}
+                  className="h-10 w-10 sm:h-12 sm:w-12 rounded-full hover:bg-muted"
+                  onClick={prevImage}
                 >
-                  <Trash2 className="h-4 w-4" />
+                  <ChevronLeft className="h-6 w-6 sm:h-7 sm:w-7" />
                 </Button>
-             </div>
+              )}
+
+              <span className="text-sm font-semibold px-2 min-w-[60px] text-center">
+                {currentImageIndex + 1} / {files.length}
+              </span>
+
+              {/* Botão Próximo (Mobile friendly place) */}
+              {files.length > 1 && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-10 w-10 sm:h-12 sm:w-12 rounded-full hover:bg-muted"
+                  onClick={nextImage}
+                >
+                  <ChevronRight className="h-6 w-6 sm:h-7 sm:w-7" />
+                </Button>
+              )}
+
+              <div className="h-6 w-px bg-border mx-1" />
+
+              <Button
+                variant="destructive"
+                size="icon"
+                className="h-10 w-10 sm:h-12 sm:w-12 rounded-full shadow-md hover:scale-105 transition-transform"
+                onClick={() => removeFile(currentFile.id)}
+              >
+                <Trash2 className="h-4 w-4 sm:h-5 sm:w-5" />
+              </Button>
+            </div>
+
           </div>
 
-          {/* Navegação Direita */}
+          {/* Navegação Lateral Desktop - Opcional e oculta no mobile */}
           {files.length > 1 && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="absolute right-4 z-50 h-12 w-12 rounded-full bg-background/50 hover:bg-background/80"
-              onClick={nextImage}
-            >
-              <ChevronRight className="h-6 w-6" />
-            </Button>
+            <>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="hidden sm:flex absolute left-6 z-50 h-16 w-16 rounded-full bg-black/20 text-white/70 hover:text-white hover:bg-black/50 transition-colors"
+                onClick={prevImage}
+              >
+                <ChevronLeft className="h-8 w-8" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="hidden sm:flex absolute right-6 z-50 h-16 w-16 rounded-full bg-black/20 text-white/70 hover:text-white hover:bg-black/50 transition-colors"
+                onClick={nextImage}
+              >
+                <ChevronRight className="h-8 w-8" />
+              </Button>
+            </>
           )}
         </div>
       )}

@@ -151,11 +151,6 @@ export default function ResultsPage() {
 
     try {
       const capturesData = images.map(img => {
-        const extractPath = (url: string) => {
-          const parts = url.split('/pipeline-temp/')
-          return parts.length > 1 ? parts[1] : url
-        }
-
         const compartments = img.boxes_info.boxes.map((box, index) => {
           const cols = Math.ceil(Math.sqrt(img.boxes_info.total_boxes))
           return {
@@ -181,11 +176,11 @@ export default function ResultsPage() {
         return {
           filename: img.filename,
           sha256: img.sha256,
-          original_uri: extractPath(img.original_url),
-          processed_uri: extractPath(img.boxes_url),
-          processed_areas_uri: extractPath(img.areas_url),
-          processed_pins_uri: extractPath(img.pins_url),
-          processed_shaft_uri: extractPath(img.shafts_url),
+          original_uri: img.original_url,
+          processed_uri: img.boxes_url,
+          processed_areas_uri: img.areas_url,
+          processed_pins_uri: img.pins_url,
+          processed_shaft_uri: img.shafts_url,
           is_valid: totalDefects === 0,
           areas_detected: img.areas_count,
           pins_detected: img.pins_count,
@@ -200,7 +195,12 @@ export default function ResultsPage() {
         }
       })
 
-      const requestData = { name: loteName, description: loteDescription, captures: capturesData }
+      const requestData = {
+        name: loteName,
+        description: loteDescription,
+        batch_timestamp: images[0]?.timestamp ?? "",
+        captures: capturesData,
+      }
 
       const response = await fetch(`${API_URL}/api/batches/create`, {
         method: "POST",

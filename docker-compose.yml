@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   db:
     image: postgres:15-alpine
@@ -13,22 +11,112 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  backend:
+  minio:
+    image: minio/minio:latest
+    container_name: hawkeye-minio
+    restart: always
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: hawkeye-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set myminio http://minio:9000 $${MINIO_ACCESS_KEY:-minioadmin} $${MINIO_SECRET_KEY:-minioadmin};
+      mc mb --ignore-existing myminio/$${MINIO_BUCKET_REVIEW:-review};
+      mc mb --ignore-existing myminio/$${MINIO_BUCKET_PERMANENT:-permanent};
+      mc anonymous set public myminio/$${MINIO_BUCKET_REVIEW:-review};
+      mc anonymous set public myminio/$${MINIO_BUCKET_PERMANENT:-permanent};
+      exit 0;
+      "
+    environment:
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_BUCKET_REVIEW: ${MINIO_BUCKET_REVIEW:-review}
+      MINIO_BUCKET_PERMANENT: ${MINIO_BUCKET_PERMANENT:-permanent}
+
+  worker:
     build:
-      context: ./backend
+      context: ./worker
       dockerfile: Dockerfile
-    container_name: hawkeye-backend
+    container_name: hawkeye-worker
+    restart: always
+    volumes:
+      - ./worker/src:/app/src
+    environment:
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_BUCKET_REVIEW: ${MINIO_BUCKET_REVIEW:-review}
+      MINIO_BUCKET_PERMANENT: ${MINIO_BUCKET_PERMANENT:-permanent}
+      MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:-http://localhost:9000}
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: hawkeye-api
     restart: always
     ports:
-      - "8000:8000"
+      - "8000:3001"
     volumes:
-      - ./backend:/app
-      - app_data:/data
+      - ./api:/app
+      - /app/node_modules
+      - /app/dist
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-hawkeye_user}:${POSTGRES_PASSWORD:-hawkeye_pass}@db:5432/${POSTGRES_DB:-hawkeye_db}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-hawkeye_user}:${POSTGRES_PASSWORD:-hawkeye_pass}@db:5432/${POSTGRES_DB:-hawkeye_db}
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_BUCKET_REVIEW: ${MINIO_BUCKET_REVIEW:-review}
+      MINIO_BUCKET_PERMANENT: ${MINIO_BUCKET_PERMANENT:-permanent}
+      MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:-http://localhost:9000}
+      CV_WORKER_URL: http://worker:8000
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      worker:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   frontend:
     build:
@@ -38,12 +126,18 @@ services:
     restart: always
     ports:
       - "3000:3000"
-
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     depends_on:
-      - backend
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
 volumes:
   postgres_data:
-  app_data:
+  minio_data:

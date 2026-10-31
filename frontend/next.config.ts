@@ -15,7 +15,7 @@ const nextConfig: NextConfig = {
       },
       {
         protocol: 'http',
-        hostname: 'backend',
+        hostname: 'api',
       },
       {
         protocol: 'https',
@@ -29,7 +29,7 @@ const nextConfig: NextConfig = {
     return [
       {
         source: '/api/:path*',
-        destination: `http://backend:8000/api/:path*`
+        destination: `http://api:3001/api/:path*`
       }
     ];
   }
