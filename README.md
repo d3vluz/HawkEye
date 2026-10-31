@@ -1,124 +1,187 @@
 <div align="center">
-  
-  ![Mockup do Projeto](assets/logo_project.png)
+
+  ![HawkEye](assets/logo_project.png)
   <h3>HawkEye</h3>
-  <p><strong>Sistema Avançado de Inspeção Visual</strong></p>
+  <p><strong>Inspeção de qualidade por visão computacional</strong></p>
 
   [![Status](https://img.shields.io/badge/status-active-success.svg)]()
   [![License](https://img.shields.io/badge/license-MIT-blue.svg)]()
-  [![Version](https://img.shields.io/badge/version-0.7-blue.svg)]()
+  [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)]()
+  [![Next.js](https://img.shields.io/badge/Next.js-15-black.svg)]()
+  [![NestJS](https://img.shields.io/badge/NestJS-10-e0234e.svg)]()
+  [![FastAPI](https://img.shields.io/badge/FastAPI-OpenCV-009688.svg)]()
+
 </div>
 
 ---
 
-HawkEye é um sistema de visão computacional projetado para inspeção de qualidade automatizada. Ele analisa imagens de lotes de produtos, detectando defeitos estruturais, ausência ou excesso de componentes (como pinos e hastes), avaliando a conformidade de cada compartimento, e fornecendo métricas de qualidade detalhadas.
+HawkEye é um sistema de **inspeção de qualidade automatizada** por visão computacional. Ele analisa imagens de componentes (pinos, eixos/hastes) e detecta defeitos sem intervenção humana: pinos ausentes, extras, danificados, com cor errada e danos estruturais, entregando métricas de qualidade por lote.
 
-## Funcionalidades Principais
+## Funcionalidades
 
-*   **Inspeção Automatizada:** Processamento rápido de imagens e identificação de anomalias (pinos ausentes, extras, danificados, ou com cores incorretas).
-*   **Pipeline de Processamento Visual:** Aplicação de múltiplas camadas de análise (Caixas delimitadoras, Áreas de interesse, Pins, Hastes).
-*   **Dashboard Executivo:** Visualização de métricas globais, *Quality Score*, taxa de sucesso e distribuição de erros.
-*   **Gerenciamento de Lotes:** Controle completo de cada lote inspecionado, desde o upload temporário (cache em memória) até a persistência no storage e banco de dados.
-*   **Análise Detalhada:** Visualização individualizada de cada imagem do lote com possibilidade de alternar dinamicamente entre os filtros de visão computacional aplicados.
-
----
-
-## Capturas de Tela
-
-### 1. Dashboard Principal
-> Em Desenvolvimento
-<!-- dashboard mostrando as métricas globais e distribuição de erro -->
-
-### 2. Visão Detalhada do Lote
-> Em Desenvolvimento
-<!-- print da tela de detalhes de um batch, exibindo o Quality Score e a lista de capturas -->
-
-### 3. Galeria e Filtros de Visão Computacional
-> Em Desenvolvimento
-<!-- print demonstrando a troca entre a imagem original e as análises -->
+- **Inspeção automatizada:** identifica anomalias por contraste, bordas e segmentação (OpenCV).
+- **Pipeline de visão computacional em camadas:** áreas/grade, pinos, compartimentos (boxes) e hastes (shafts), cada etapa gerando uma imagem anotada.
+- **Revisão humana:** preview dos resultados antes de persistir; aprovar ou rejeitar o lote.
+- **Dashboard de métricas:** *quality score*, taxa de sucesso, ranking e distribuição de defeitos.
+- **Gestão de lotes:** ciclo completo do upload temporário à persistência definitiva.
 
 ---
 
-## Tecnologias Utilizadas
+## Arquitetura
 
-Este projeto utiliza uma separação de arquitetura baseada em microsserviços rodando sobre **Docker**.
+O sistema é dividido em serviços por responsabilidade, orquestrados via **Docker Compose**.
 
-**Frontend:**
-*   **[Next.js](https://nextjs.org/) (React):** Interface de usuário rápida, reativa e fortemente tipada.
-*   **[Tailwind CSS](https://tailwindcss.com/) & [shadcn/ui](https://ui.shadcn.com/):** Componentes maravilhosos, responsivos e fáceis de customizar.
-*   **[Recharts](https://recharts.org/):** Geração dinâmica de gráficos estatísticos do controle de qualidade.
+```mermaid
+flowchart LR
+    User([Usuário]) --> FE["Next.js<br/>Frontend :3000"]
+    FE -->|"upload / process / /api/*"| API["NestJS<br/>API :8000 → 3001"]
+    API -->|"POST /process"| WK["FastAPI Worker<br/>OpenCV (interno :8000)"]
+    API -->|"Prisma"| DB[("PostgreSQL :5432")]
+    API -->|"@aws-sdk/client-s3"| S3[("MinIO<br/>review / permanent")]
+    WK -->|"boto3"| S3
+```
 
-**Backend:**
-*   **[FastAPI](https://fastapi.tiangolo.com/) (Python 3.11):** API REST assíncrona, robusta e escalável.
-*   **[OpenCV](https://opencv.org/):** (cv2/Numpy) Motor primário responsável pelas manipulações de imagem e identificação de defeitos por contraste, bordas, etc.
+| Serviço | Stack | Porta | Função |
+|:---------:|:-------:|:-------:|:--------:|
+| `frontend` | Next.js 15 + React 19 + Tailwind 4 + shadcn/ui | `3000` | Interface (upload, revisão, admin) |
+| `api` | NestJS 10 (TypeScript) | `8000` → `3001` | Orquestração: upload, storage, DB, métricas |
+| `worker` | FastAPI (Python 3.11) + OpenCV | interno `8000` | Processamento de visão computacional |
+| `db` | PostgreSQL 15 | `5432` | Lotes, capturas e compartimentos |
+| `minio` | MinIO (S3-compatível) | `9000` / `9001` | Storage das imagens |
 
-**Infraestrutura & Persistência:**
-*   **[Docker](https://www.docker.com/) & Docker Compose:** Orquestração flexível isolando o Frontend, Backend e Banco de Dados.
-*   **[Prisma ORM](https://www.prisma.io/):** Controle da modelagem relacional orientada a objetos (assíncrono em Python).
-*   **[PostgreSQL](https://www.postgresql.org/):** Banco de dados relacional sólido para armazenar todo histórico de lotes e estatísticas da telemetria.
-*   **Local Storage Volumizado:** Sistema de cache de arquivos nativo isolando pastas temporárias e persistentes.
+### Por que esta arquitetura?
+
+A separação é **intencional, por responsabilidade**:
+
+- **Next.js** entrega a interface: tipada e reativa.
+- **NestJS** é a camada de **orquestração** (upload → MinIO, chamada ao worker, persistência via Prisma, agregação de métricas), com validação (`class-validator`) e injeção de dependência. Mantém a regra de negócio desacoplada da UI.
+- **FastAPI (worker)** isola o **processamento de visão computacional** no ecossistema natural para isso: Python/OpenCV/NumPy. Por ser CPU-bound e não ter acesso ao banco (só ao storage), pode escalar ou falhar sem derrubar a API.
+
+### Fluxo principal
+
+```
+Upload (frontend)
+  → POST /upload-batch        NestJS → MinIO (bucket review)
+  → POST /process-images      NestJS → FastAPI /process → pipeline OpenCV → review
+  → /results                  revisão humana (aprovar ou rejeitar)
+  → POST /api/batches/create  NestJS → move review → permanent + grava no PostgreSQL
+  → /admin                    dashboard de métricas (NestJS → PostgreSQL)
+```
+
+Rejeitar (`POST /api/batches/reject`) apaga a pasta do lote no bucket `review`. **Sem cache em memória** o storage temporário é o próprio bucket `review` do MinIO.
 
 ---
 
-## Instalação e Execução
+## Tecnologias
 
-A maneira mais prática de subir todo o ecossistema do HawkEye é através do Docker Compose. 
+**Frontend**
+- [Next.js 15](https://nextjs.org/) + [React 19](https://react.dev/) - UI tipada e reativa
+- [Tailwind CSS 4](https://tailwindcss.com/) + [shadcn/ui](https://ui.shadcn.com/) - componentes
+- [Recharts](https://recharts.org/) - gráficos do dashboard
+
+**API (orquestração)**
+- [NestJS 10](https://nestjs.com/) (TypeScript) - módulos, DI, DTOs validados
+- [Prisma ORM](https://www.prisma.io/) - modelagem relacional (client JS)
+- [@aws-sdk/client-s3](https://docs.aws.amazon.com/sdk-for-javascript/) - acesso ao MinIO
+
+**Worker (visão computacional)**
+- [FastAPI](https://fastapi.tiangolo.com/) (Python 3.11) - endpoint de processamento
+- [OpenCV](https://opencv.org/) + [NumPy](https://numpy.org/) - detecção por contraste, bordas e segmentação
+- [boto3](https://boto3.amazonaws.com/) - acesso ao MinIO
+
+**Infraestrutura**
+- [Docker](https://www.docker.com/) & Docker Compose
+- [PostgreSQL 15](https://www.postgresql.org/)
+- [MinIO](https://min.io/) - storage S3-compatível (buckets `review` e `permanent`)
+
+---
+
+## Como rodar
 
 ### Pré-requisitos
-*   [Docker](https://docs.docker.com/get-docker/)
-*   [Docker Compose](https://docs.docker.com/compose/install/)
+- [Docker](https://docs.docker.com/get-docker/) e Docker Compose
 
 ### Passos
 
 1. **Clone o repositório:**
    ```bash
-   git clone https://github.com/SeuUsuario/HawkEye.git
+   git clone https://github.com/d3vluz/HawkEye.git
    cd HawkEye
    ```
 
-2. **Inicie os Containers:**
-   Execute o orquestrador para baixar as imagens e construir o ecossistema (banco, api e frontend).
+2. **Crie e ajuste o `.env`** a partir do exemplo:
    ```bash
-   docker compose up -d --build
+   cp .env.example .env
    ```
 
-3. **Gere a tipagem do Prisma (Opcional, em caso de erro):**
+3. **Suba o ecossistema:**
    ```bash
-   docker exec hawkeye-backend prisma generate
+   docker compose up --build
    ```
 
-4. **Acesse as aplicações:**
-   *   **Frontend (Interface do Usuário):** [http://localhost:3000](http://localhost:3000)
-   *   **Backend (Swagger/Docs API):** [http://localhost:8000/docs](http://localhost:8000/docs)
+4. **Acesse:**
+   - Interface: [http://localhost:3000](http://localhost:3000)
+   - Console do MinIO: [http://localhost:9001](http://localhost:9001) (credenciais: `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY`)
+   - Health da API: [http://localhost:8000/health](http://localhost:8000/health)
 
 ---
 
-## Variáveis de Ambiente
+## Estrutura
 
-O sistema possui configuração nativa configurada no `docker-compose.yml`, porém caso deseje rodar localmente fora de containers, você deve criar arquivos `.env`.
-
-**Exemplo Backend:**
-```ini
-DATABASE_URL="postgresql://hawkeye_user:hawkeye_pass@localhost:5432/hawkeye_db?schema=public"
+```
+frontend/   Next.js 15 - interface (upload, /results, /admin)
+api/        NestJS - orquestrador HTTP
+  src/
+    images/     upload (multer → MinIO) + proxy para o worker
+    batches/    CRUD de lotes (DB + move/delete no MinIO)
+    metrics/    agregação do dashboard
+    storage/    cliente MinIO (@aws-sdk/client-s3)
+    cv-worker/  cliente HTTP do worker
+    health/     healthcheck
+  prisma/schema.prisma
+worker/     FastAPI - worker de visão computacional
+  src/
+    main.py         FastAPI + POST /process
+    pipeline.py     orquestra os steps OpenCV
+    processing/     areas | pins | boxes | shafts
+    storage.py      download/upload via boto3
+  scripts/run_local.py   roda o pipeline no disco, sem Docker
+docker-compose.yml
 ```
 
-**Exemplo Frontend:**
-```ini
-NEXT_PUBLIC_API_URL="http://localhost:8000"
+### Principais endpoints (API)
+
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| `POST` | `/upload-batch` | Envia imagens para o bucket `review` |
+| `POST` | `/process-images` | Dispara o pipeline no worker |
+| `POST` | `/api/batches/create` | Aprova o lote (persiste + move para `permanent`) |
+| `POST` | `/api/batches/reject` | Rejeita e apaga do `review` |
+| `GET`  | `/api/batches` · `/api/batches/:id` | Lista / detalha lotes |
+| `GET`  | `/api/metrics/dashboard` | Métricas do dashboard |
+| `GET`  | `/health` | Healthcheck |
+
+### Banco de dados
+
+```
+Batch (1) → Capture (N) → Compartment (N)   [cascade delete]
 ```
 
----
+`Capture` guarda flags de defeito (`hasMissingPins`, `hasDamagedPins`, `hasWrongColorPins`, `hasStructureDamage`, `hasShaftDefects`) e um `sha256` único por imagem para deduplicação.
 
-## Fluxo de Dados
+## Capturas de tela
 
-1. Imagens são tiradas do equipamento de vistoria e enviadas via API para `/upload-batch/`.
-2. O Backend coloca temporariamente essas imagens em Cache de Memória e processa o modelo matemático de OpenCV.
-3. O Backend retorna um *Preview* dos dados extraídos para o Frontend aprovar ou rejeitar.
-4. Se rejeitado, o Cache é deletado permanentemente sem sujar o PostgreSQL.
-5. Se aprovado, as imagens (Originais e Mascaradas) sobem fisicamente para o disco rígido, enquanto o Schema Prisma cadastra as conexões unindo os Defeitos e o *Score* daquele Batch de Inspeção finalizado.
+### Dashboard
+> _Em desenvolvimento_
+
+### Detalhe do lote
+> _Em desenvolvimento_
+
+### Galeria e filtros de visão computacional
+> _Em desenvolvimento_
 
 ---
 
 ## Licença
 
-Este projeto é desenvolvido para fins corporativos/estudos. Licenciado sob a [MIT License](LICENSE).
+Projeto desenvolvido para fins de estudo e portfólio. Licenciado sob a [MIT License](LICENSE).
