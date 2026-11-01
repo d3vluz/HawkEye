@@ -87,3 +87,108 @@ export async function deleteBatch(batchId: string): Promise<boolean> {
     }
     return true;
 }
+
+// ===== Equipe (membros, convites, unidades) =====
+
+export interface Unit {
+    id: string;
+    name: string;
+}
+
+export interface Member {
+    id: string;
+    name: string;
+    email: string;
+    status: "ACTIVE" | "INACTIVE";
+    allUnits: boolean;
+    lastAccessAt: string | null;
+    units: Unit[];
+}
+
+export interface Invite {
+    id: string;
+    name: string | null;
+    email: string;
+    status: "PENDING" | "ACCEPTED" | "CANCELLED";
+    allUnits: boolean;
+    createdAt: string;
+    units: Unit[];
+}
+
+export interface TeamOverview {
+    members: number;
+    activeToday: number;
+    pendingInvites: number;
+    units: number;
+}
+
+export interface TeamMemberPayload {
+    name?: string;
+    email: string;
+    allUnits: boolean;
+    unitIds: string[];
+}
+
+export async function getTeamOverview(): Promise<TeamOverview> {
+    const res = await fetch(`${API_URL}/api/team/overview`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch team overview");
+    return res.json();
+}
+
+export async function getMembers(): Promise<Member[]> {
+    const res = await fetch(`${API_URL}/api/members`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch members");
+    return res.json();
+}
+
+export async function getInvites(): Promise<Invite[]> {
+    const res = await fetch(`${API_URL}/api/invites`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch invites");
+    return res.json();
+}
+
+export async function getUnits(): Promise<Unit[]> {
+    const res = await fetch(`${API_URL}/api/units`, { cache: "no-store" });
+    if (!res.ok) throw new Error("Failed to fetch units");
+    return res.json();
+}
+
+export async function createInvite(payload: TeamMemberPayload): Promise<Invite> {
+    const res = await fetch(`${API_URL}/api/invites`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error("Failed to create invite");
+    return res.json();
+}
+
+export async function createMember(payload: TeamMemberPayload): Promise<Member> {
+    const res = await fetch(`${API_URL}/api/members`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error("Failed to create member");
+    return res.json();
+}
+
+export async function acceptInvite(id: string): Promise<void> {
+    const res = await fetch(`${API_URL}/api/invites/${id}/accept`, { method: "POST" });
+    if (!res.ok) throw new Error("Failed to accept invite");
+}
+
+export async function resendInvite(id: string): Promise<void> {
+    const res = await fetch(`${API_URL}/api/invites/${id}/resend`, { method: "POST" });
+    if (!res.ok) throw new Error("Failed to resend invite");
+}
+
+export async function cancelInvite(id: string): Promise<void> {
+    const res = await fetch(`${API_URL}/api/invites/${id}/cancel`, { method: "POST" });
+    if (!res.ok) throw new Error("Failed to cancel invite");
+}
+
+export async function deleteMember(id: string): Promise<void> {
+    const res = await fetch(`${API_URL}/api/members/${id}`, { method: "DELETE" });
+    if (!res.ok) throw new Error("Failed to delete member");
+}

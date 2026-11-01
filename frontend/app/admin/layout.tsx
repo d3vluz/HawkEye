@@ -9,6 +9,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { LayoutDashboard, Users, Package, Settings, LogOut, X, Sun, Moon} from "lucide-react"
 import { cn } from "@/lib/utils"
 
+const SIDEBAR_ANIM_MS = 300
+
 export default function AdminLayout({
   children,
 }: {
@@ -17,11 +19,20 @@ export default function AdminLayout({
   const router = useRouter()
   const pathname = usePathname()
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [showExpanded, setShowExpanded] = useState(true)
   const { theme, setTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
   useEffect(() => {
     setMounted(true)
   }, [])
+
+  useEffect(() => {
+    if (sidebarOpen) {
+      const t = setTimeout(() => setShowExpanded(true), SIDEBAR_ANIM_MS)
+      return () => clearTimeout(t)
+    }
+    setShowExpanded(false)
+  }, [sidebarOpen])
 
   const handleLogout = () => {
     router.push("/")
@@ -30,7 +41,7 @@ export default function AdminLayout({
   const menuItems = [
     { icon: LayoutDashboard, label: "Dashboard", href: "/admin" },
     { icon: Package, label: "Lotes", href: "/admin/batches" },
-    { icon: Users, label: "Usuários", href: "/admin/manage_users" },
+    { icon: Users, label: "Equipe", href: "/admin/manage_users" },
     { icon: Settings, label: "Configurações", href: "/admin/settings" },
   ]
 
@@ -47,7 +58,7 @@ export default function AdminLayout({
       {/* Sidebar */}
       <aside
         className={cn(
-          "fixed left-0 top-0 z-40 h-screen bg-sidebar text-sidebar-foreground border-r border-sidebar-border transition-all duration-300 flex flex-col",
+          "fixed left-0 top-0 z-40 h-screen bg-sidebar text-sidebar-foreground border-r border-sidebar-border transition-all duration-300 flex flex-col overflow-hidden",
           sidebarOpen ? "w-64" : "w-16"
         )}
       >
@@ -56,34 +67,25 @@ export default function AdminLayout({
           {/* Logo App */}
           <div className={cn(
             "flex h-16 items-center",
-            sidebarOpen ? "justify-between px-4" : "justify-center"
+            showExpanded ? "justify-between px-4" : "justify-center"
           )}>
-            {sidebarOpen ? (
+            {showExpanded ? (
               <>
                 <div className="flex items-center gap-2 py-4">
-                    <Image
-                      src="/logo.png"
-                      alt="HawkEye Logo"
-                      width={64}
-                      height={64}
-                      className="object-contain"
-                    />
-
-                    <h1 className={cn(
-                      "text-xl font-bold transition-opacity duration-150",
-                      sidebarOpen ? "opacity-100 delay-300" : "opacity-0 delay-0"
-                    )}>
-                      HawkEye
-                    </h1>
+                  <Image
+                    src="/logo.png"
+                    alt="HawkEye Logo"
+                    width={64}
+                    height={64}
+                    className="object-contain"
+                  />
+                  <h1 className="text-xl font-bold">HawkEye</h1>
                 </div>
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => setSidebarOpen(!sidebarOpen)}
-                  className={cn(
-                    "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-opacity duration-150",
-                    sidebarOpen ? "opacity-100 delay-300" : "opacity-0 delay-0"
-                  )}
+                  onClick={() => setSidebarOpen(false)}
+                  className="text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent"
                 >
                   <X className="h-5 w-5" />
                 </Button>
@@ -91,7 +93,7 @@ export default function AdminLayout({
             ) : (
               <div
                 className="h-10 w-10 rounded-lg overflow-hidden cursor-pointer flex items-center justify-center"
-                onClick={() => setSidebarOpen(!sidebarOpen)}
+                onClick={() => setSidebarOpen(true)}
               >
                 <Image
                   src="/logo.png"
@@ -105,14 +107,14 @@ export default function AdminLayout({
           </div>
 
           {/* Divisória */}
-          {sidebarOpen && (
+          {showExpanded && (
             <div className="px-4">
               <div className="h-px bg-sidebar-border" />
             </div>
           )}
 
           {/* Perfil do Admin */}
-          {sidebarOpen && (
+          {showExpanded && (
             <div className="px-4 py-4 flex items-center gap-3">
               <Avatar className="h-12 w-12 border-2 border-sidebar-border">
                 <AvatarImage src={adminUser.avatar} alt={adminUser.name} />
@@ -120,10 +122,7 @@ export default function AdminLayout({
                   {adminUser.name.split(' ').map(n => n[0]).join('')}
                 </AvatarFallback>
               </Avatar>
-              <div className={cn(
-                "flex-1 min-w-0 transition-opacity duration-150",
-                sidebarOpen ? "opacity-100 delay-300" : "opacity-0 delay-0"
-              )}>
+              <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-sidebar-foreground truncate">
                   {adminUser.name}
                 </p>
@@ -139,7 +138,7 @@ export default function AdminLayout({
         </div>
 
         {/* Divisória */}
-        {sidebarOpen && (
+        {showExpanded && (
           <div className="px-4">
             <div className="h-px bg-sidebar-border" />
           </div>
@@ -155,21 +154,14 @@ export default function AdminLayout({
                 onClick={() => router.push(item.href)}
                 className={cn(
                   "flex items-center rounded-lg py-2.5 text-sm font-medium transition-colors",
-                  sidebarOpen ? "gap-3 px-3" : "justify-center px-0",
+                  showExpanded ? "gap-3 px-3" : "justify-center px-0",
                   isActive
                     ? "bg-sidebar-accent text-sidebar-foreground"
                     : "text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground"
                 )}
               >
                 <item.icon className="h-5 w-5 flex-shrink-0" />
-                {sidebarOpen && (
-                  <span className={cn(
-                    "transition-opacity duration-150",
-                    sidebarOpen ? "opacity-100 delay-300" : "opacity-0 delay-0"
-                  )}>
-                    {item.label}
-                  </span>
-                )}
+                {showExpanded && <span>{item.label}</span>}
               </button>
             )
           })}
@@ -177,14 +169,14 @@ export default function AdminLayout({
 
         {/* Footer Actions (Theme + Logout) */}
         <div className="p-4 border-t border-sidebar-border space-y-2">
-          
+
           {/* Botão de Tema */}
           {mounted && (
             <button
               onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
               className={cn(
                 "flex w-full items-center rounded-lg py-2.5 text-sm font-medium text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground",
-                sidebarOpen ? "gap-3 px-3" : "justify-center px-0"
+                showExpanded ? "gap-3 px-3" : "justify-center px-0"
               )}
             >
               {theme === "dark" ? (
@@ -192,15 +184,7 @@ export default function AdminLayout({
               ) : (
                 <Moon className="h-5 w-5 flex-shrink-0" />
               )}
-              
-              {sidebarOpen && (
-                <span className={cn(
-                  "transition-opacity duration-150",
-                  sidebarOpen ? "opacity-100 delay-300" : "opacity-0 delay-0"
-                )}>
-                  {theme === "dark" ? "Modo Claro" : "Modo Escuro"}
-                </span>
-              )}
+              {showExpanded && <span>{theme === "dark" ? "Modo Claro" : "Modo Escuro"}</span>}
             </button>
           )}
 
@@ -209,18 +193,11 @@ export default function AdminLayout({
             onClick={handleLogout}
             className={cn(
               "flex w-full items-center rounded-lg py-2.5 text-sm font-medium text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground",
-              sidebarOpen ? "gap-3 px-3" : "justify-center px-0"
+              showExpanded ? "gap-3 px-3" : "justify-center px-0"
             )}
           >
             <LogOut className="h-5 w-5 flex-shrink-0" />
-            {sidebarOpen && (
-              <span className={cn(
-                "transition-opacity duration-150",
-                sidebarOpen ? "opacity-100 delay-300" : "opacity-0 delay-0"
-              )}>
-                Sair
-              </span>
-            )}
+            {showExpanded && <span>Sair</span>}
           </button>
         </div>
       </aside>

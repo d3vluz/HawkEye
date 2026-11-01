@@ -23,4 +23,4 @@ RUN npx prisma generate
 COPY --from=builder /app/dist ./dist
 USER node
 EXPOSE 3001
-CMD ["sh", "-c", "npx prisma db push && node dist/main"]
+CMD ["sh", "-c", "npx prisma db push --skip-generate && node dist/main"]

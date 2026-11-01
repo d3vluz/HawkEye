@@ -8,6 +8,7 @@ import { ImagesModule } from './images/images.module';
 import { BatchesModule } from './batches/batches.module';
 import { MetricsModule } from './metrics/metrics.module';
 import { HealthModule } from './health/health.module';
+import { TeamModule } from './team/team.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { HealthModule } from './health/health.module';
     BatchesModule,
     MetricsModule,
     HealthModule,
+    TeamModule,
   ],
 })
 export class AppModule {}

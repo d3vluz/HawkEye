@@ -65,3 +65,47 @@ model Compartment {
   isValid   Boolean @default(false)
   hasDefect Boolean @default(false)
 }
+
+enum MemberStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum InviteStatus {
+  PENDING
+  ACCEPTED
+  CANCELLED
+}
+
+model Unit {
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now())
+
+  members Member[]
+  invites Invite[]
+}
+
+model Member {
+  id           String       @id @default(uuid())
+  name         String
+  email        String       @unique
+  status       MemberStatus @default(ACTIVE)
+  allUnits     Boolean      @default(false)
+  lastAccessAt DateTime?
+  createdAt    DateTime     @default(now())
+
+  units Unit[]
+}
+
+model Invite {
+  id          String       @id @default(uuid())
+  name        String?
+  email       String
+  status      InviteStatus @default(PENDING)
+  allUnits    Boolean      @default(false)
+  createdAt   DateTime     @default(now())
+  respondedAt DateTime?
+
+  units Unit[]
+}
