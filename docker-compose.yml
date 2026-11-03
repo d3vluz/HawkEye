@@ -104,6 +104,9 @@ services:
       MINIO_BUCKET_PERMANENT: ${MINIO_BUCKET_PERMANENT:-permanent}
       MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:-http://localhost:9000}
       CV_WORKER_URL: http://worker:8000
+      JWT_SECRET: ${JWT_SECRET:?defina JWT_SECRET no .env}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3000}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
     depends_on:
       db:
         condition: service_healthy
@@ -128,6 +131,7 @@ services:
       - "3000:3000"
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      JWT_SECRET: ${JWT_SECRET:?defina JWT_SECRET no .env}
     depends_on:
       api:
         condition: service_healthy

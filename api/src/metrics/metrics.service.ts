@@ -15,20 +15,22 @@ const DEFECT_FLAGS = [
 export class MetricsService {
   constructor(private prisma: PrismaService) {}
 
-  async getDashboard() {
-    const totalBatches = await this.prisma.batch.count();
+  async getDashboard(unitId?: string) {
+    const batchWhere: Prisma.BatchWhereInput = { unitId };
+    const captureWhere: Prisma.CaptureWhereInput = { batch: batchWhere };
+    const totalBatches = await this.prisma.batch.count({ where: batchWhere });
 
     if (totalBatches === 0) {
       return { totalBatches: 0, totalImages: 0, validImages: 0, totalDefects: 0, successRate: 0, qualityScore: 0, recentBatches: [], defectsRanking: [], dailyStats: [], topDefects: [], defectTrends: [], errorDistribution: [], validityDistribution: [] };
     }
 
     const [batchAgg, defectAgg, recent, flagCounts] = await Promise.all([
-      this.prisma.batch.aggregate({ _sum: { totalCaptures: true, validCaptures: true } }),
-      this.prisma.capture.aggregate({ _sum: { defectsCount: true } }),
-      this.prisma.batch.findMany({ take: 10, orderBy: { createdAt: 'desc' } }),
+      this.prisma.batch.aggregate({ where: batchWhere, _sum: { totalCaptures: true, validCaptures: true } }),
+      this.prisma.capture.aggregate({ where: captureWhere, _sum: { defectsCount: true } }),
+      this.prisma.batch.findMany({ where: batchWhere, take: 10, orderBy: { createdAt: 'desc' } }),
       Promise.all(
         DEFECT_FLAGS.map(([, field]) =>
-          this.prisma.capture.count({ where: { [field]: true } as Prisma.CaptureWhereInput }),
+          this.prisma.capture.count({ where: { ...captureWhere, [field]: true } }),
         ),
       ),
     ]);

@@ -1,14 +1,17 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { CreateBatchDto, CaptureDto } from './dto/create-batch.dto';
+import { SessionMember } from '../auth/decorators';
+import { InspectionSettingsService } from '../settings/inspection-settings.service';
 
 @Injectable()
 export class BatchesService {
   constructor(
     private prisma: PrismaService,
     private storage: StorageService,
+    private inspection: InspectionSettingsService,
   ) {}
 
   private extractTimestamp(dto: CreateBatchDto): string {
@@ -35,7 +38,21 @@ export class BatchesService {
     return paths;
   }
 
-  async create(dto: CreateBatchDto) {
+  async create(dto: CreateBatchDto, author: SessionMember) {
+    if (!author.matricula) throw new BadRequestException('Conta sem matrícula não pode registrar coletas');
+    await this.assertUnitAccess(author.id, dto.unit_id);
+    const settings = await this.inspection.get();
+    const verdicts = new Map(dto.captures.map((c) => [c.sha256, this.inspection.evaluate(settings, {
+      gridRows: c.grid_rows,
+      gridCols: c.grid_cols,
+      areasDetected: c.areas_detected,
+      hasMissingPins: c.has_missing_pins,
+      hasExtraPins: c.has_extra_pins,
+      hasDamagedPins: c.has_damaged_pins,
+      hasWrongColorPins: c.has_wrong_color_pins,
+      hasShaftDefects: c.has_shaft_defects,
+    })]));
+
     const timestamp = this.extractTimestamp(dto);
     const pathsMap = new Map<string, Record<string, string>>();
 
@@ -44,7 +61,7 @@ export class BatchesService {
     }
 
     const total = dto.captures.length;
-    const valid = dto.captures.filter((c) => c.is_valid).length;
+    const valid = dto.captures.filter((c) => verdicts.get(c.sha256)!.isValid).length;
 
     const batch = await this.prisma.batch.create({
       data: {
@@ -53,11 +70,14 @@ export class BatchesService {
         totalCaptures: total,
         validCaptures: valid,
         invalidCaptures: total - valid,
+        authorMatricula: author.matricula,
+        unitId: dto.unit_id,
       },
     });
 
     for (const capture of dto.captures) {
       const paths = pathsMap.get(capture.sha256) ?? {};
+      const verdict = verdicts.get(capture.sha256)!;
       const cap = await this.prisma.capture.create({
         data: {
           batchId: batch.id,
@@ -68,15 +88,15 @@ export class BatchesService {
           processedAreasUri: paths['areas'] ? this.storage.getPublicUrl(paths['areas'], this.storage.permanent) : undefined,
           processedPinsUri: paths['pins'] ? this.storage.getPublicUrl(paths['pins'], this.storage.permanent) : undefined,
           processedShaftUri: paths['shafts'] ? this.storage.getPublicUrl(paths['shafts'], this.storage.permanent) : undefined,
-          isValid: capture.is_valid,
+          isValid: verdict.isValid,
           areasDetected: capture.areas_detected,
           pinsDetected: capture.pins_detected,
-          defectsCount: capture.defects_count,
+          defectsCount: capture.defects_count + (verdict.hasStructureDamage ? 1 : 0),
           hasMissingPins: capture.has_missing_pins,
           hasExtraPins: capture.has_extra_pins,
           hasDamagedPins: capture.has_damaged_pins,
           hasWrongColorPins: capture.has_wrong_color_pins,
-          hasStructureDamage: capture.has_structure_damage,
+          hasStructureDamage: verdict.hasStructureDamage,
           hasShaftDefects: capture.has_shaft_defects,
         },
       });
@@ -108,12 +128,36 @@ export class BatchesService {
     return { success: true, message: `Lote ${timestamp} rejeitado`, timestamp };
   }
 
-  async findAll() {
-    const batches = await this.prisma.batch.findMany({ orderBy: { createdAt: 'desc' } });
+  private async assertUnitAccess(memberId: string, unitId: string) {
+    const member = await this.prisma.member.findUnique({
+      where: { id: memberId },
+      select: { allUnits: true, units: { where: { id: unitId }, select: { id: true } } },
+    });
+    const unitExists = (await this.prisma.unit.count({ where: { id: unitId } })) > 0;
+    if (!unitExists) throw new BadRequestException('Linha não encontrada');
+    if (!member?.allUnits && !member?.units.length) throw new ForbiddenException('Você não tem acesso a esta linha');
+  }
+
+  findAll(unitId?: string) {
+    return this.list({ unitId });
+  }
+
+  findMine(matricula: string | null) {
+    return matricula ? this.list({ authorMatricula: matricula }) : { batches: [] };
+  }
+
+  private async list(where: { authorMatricula?: string; unitId?: string }) {
+    const batches = await this.prisma.batch.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      include: { unit: { select: { id: true, name: true } } },
+    });
     const defectSums = await this.prisma.capture.groupBy({
       by: ['batchId'],
+      where: { batch: where },
       _sum: { defectsCount: true },
     });
+    const names = await this.authorNames(batches.map((b) => b.authorMatricula));
     const defectsByBatch = new Map(defectSums.map((d) => [d.batchId, d._sum.defectsCount ?? 0]));
 
     return {
@@ -125,16 +169,42 @@ export class BatchesService {
         total_defects: defectsByBatch.get(b.id) ?? 0,
         quality_score: b.totalCaptures > 0 ? (b.validCaptures / b.totalCaptures) * 100 : 0,
         created_at: b.createdAt.toISOString(),
+        author: this.authorOf(b.authorMatricula, names),
+        unit: b.unit,
       })),
     };
   }
 
-  async findOne(id: string) {
-    const batch = await this.prisma.batch.findUnique({
-      where: { id },
-      include: { captures: { include: { compartments: true } } },
+  findOne(id: string) {
+    return this.detail({ id });
+  }
+
+  findOneOwned(id: string, matricula: string | null) {
+    if (!matricula) throw new NotFoundException('Lote não encontrado');
+    return this.detail({ id, authorMatricula: matricula });
+  }
+
+  private async authorNames(matriculas: Array<string | null>) {
+    const unique = [...new Set(matriculas.filter((m): m is string => m !== null))];
+    const members = await this.prisma.member.findMany({
+      where: { matricula: { in: unique } },
+      select: { matricula: true, name: true },
+    });
+    return new Map(members.map((m) => [m.matricula, m.name]));
+  }
+
+  private authorOf(matricula: string | null, names: Map<string | null, string>) {
+    return matricula ? { matricula, name: names.get(matricula) ?? null } : null;
+  }
+
+  private async detail(where: { id: string; authorMatricula?: string }) {
+    const batch = await this.prisma.batch.findFirst({
+      where,
+      include: { captures: { include: { compartments: true } }, unit: { select: { id: true, name: true } } },
     });
     if (!batch) throw new NotFoundException('Lote não encontrado');
+
+    const names = await this.authorNames([batch.authorMatricula]);
 
     return {
       batch: {
@@ -142,6 +212,8 @@ export class BatchesService {
         name: batch.name,
         description: batch.description,
         created_at: batch.createdAt.toISOString(),
+        author: this.authorOf(batch.authorMatricula, names),
+        unit: batch.unit,
         total_captures: batch.totalCaptures,
         valid_captures: batch.validCaptures,
         invalid_captures: batch.invalidCaptures,
@@ -169,6 +241,20 @@ export class BatchesService {
   }
 
   async remove(id: string) {
+    const batch = await this.prisma.batch.findUnique({ where: { id }, include: { captures: true } });
+    if (!batch) throw new NotFoundException('Lote não encontrado');
+
+    const urls = batch.captures.flatMap((c) => [
+      c.originalUri,
+      c.processedUri,
+      c.processedAreasUri,
+      c.processedPinsUri,
+      c.processedShaftUri,
+    ]);
+
+    // Imagens antes do registro: se o storage falhar, o lote continua visível
+    // e a exclusão pode ser repetida, sem deixar arquivos órfãos.
+    await this.storage.deleteByUrls(urls, this.storage.permanent);
     await this.prisma.batch.delete({ where: { id } });
     return { success: true };
   }

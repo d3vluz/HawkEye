@@ -16,7 +16,17 @@ model Batch {
   validCaptures   Int       @default(0)
   invalidCaptures Int       @default(0)
 
+  // Sem chave estrangeira: a matrícula precisa continuar no lote após excluir o membro.
+  authorMatricula String?
+
+  // Restrict: uma linha com lotes não pode sumir, senão as métricas por linha perdem a origem.
+  unitId String?
+  unit   Unit?   @relation(fields: [unitId], references: [id], onDelete: Restrict)
+
   captures Capture[]
+
+  @@index([authorMatricula, createdAt])
+  @@index([unitId, createdAt])
 }
 
 model Capture {
@@ -71,10 +81,9 @@ enum MemberStatus {
   INACTIVE
 }
 
-enum InviteStatus {
-  PENDING
-  ACCEPTED
-  CANCELLED
+enum MemberRole {
+  ADMIN
+  EMPLOYEE
 }
 
 model Unit {
@@ -83,29 +92,41 @@ model Unit {
   createdAt DateTime @default(now())
 
   members Member[]
-  invites Invite[]
+  batches Batch[]
 }
 
 model Member {
   id           String       @id @default(uuid())
   name         String
-  email        String       @unique
+  matricula    String?      @unique
+  email        String?      @unique
+  phone        String?
+  githubUsername String?
+  role         MemberRole   @default(EMPLOYEE)
   status       MemberStatus @default(ACTIVE)
   allUnits     Boolean      @default(false)
   lastAccessAt DateTime?
   createdAt    DateTime     @default(now())
 
+  passwordHash       String?
+  mustChangePassword Boolean @default(true)
+  tokenVersion       Int     @default(0)
+
   units Unit[]
 }
 
-model Invite {
-  id          String       @id @default(uuid())
-  name        String?
-  email       String
-  status      InviteStatus @default(PENDING)
-  allUnits    Boolean      @default(false)
-  createdAt   DateTime     @default(now())
-  respondedAt DateTime?
-
-  units Unit[]
+// Linha única (id = 1): os critérios valem para o sistema inteiro.
+model InspectionSettings {
+  id                    Int      @id @default(1)
+  expectedRows          Int?
+  expectedCols          Int?
+  minQualityScore       Int      @default(80)
+  rejectMissingPins     Boolean  @default(true)
+  rejectExtraPins       Boolean  @default(true)
+  rejectDamagedPins     Boolean  @default(true)
+  rejectWrongColorPins  Boolean  @default(true)
+  rejectStructureDamage Boolean  @default(true)
+  rejectShaftDefects    Boolean  @default(true)
+  updatedAt             DateTime @updatedAt
+  updatedByMatricula    String?
 }

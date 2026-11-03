@@ -48,6 +48,8 @@ def process(req: ProcessRequest):
             "boxes_url": storage.get_public_url(boxes_key),
             "shafts_url": storage.get_public_url(shafts_key),
             "areas_count": ctx.areas_count,
+            "grid_rows": max(len(ctx.y_positions) - 1, 0),
+            "grid_cols": max(len(ctx.x_positions) - 1, 0),
             "pins_count": ctx.pins_count,
             "boxes_info": ctx.boxes_info,
             "pin_classification": ctx.pin_classification,

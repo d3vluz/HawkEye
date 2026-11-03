@@ -6,8 +6,7 @@ export class TeamSeedService implements OnModuleInit {
   constructor(private prisma: PrismaService) {}
 
   async onModuleInit() {
-    const existing = await this.prisma.member.count();
-    if (existing > 0) return;
+    if ((await this.prisma.unit.count()) > 0) return;
 
     const daysAgo = (n: number) => {
       const d = new Date();
@@ -15,21 +14,22 @@ export class TeamSeedService implements OnModuleInit {
       return d;
     };
 
-    const [central, linhaA, linhaB] = await Promise.all([
-      this.prisma.unit.create({ data: { name: 'Planta Central' } }),
+    const [linhaA, , linhaC] = await Promise.all([
       this.prisma.unit.create({ data: { name: 'Linha A' } }),
       this.prisma.unit.create({ data: { name: 'Linha B' } }),
+      this.prisma.unit.create({ data: { name: 'Linha C' } }),
     ]);
 
     await this.prisma.member.create({
-      data: { name: 'Rafael Costa', email: 'rafael@hawkeye.com.br', allUnits: true, lastAccessAt: new Date() },
+      data: { name: 'Rafael Costa', matricula: '1001', email: 'rafael@hawkeye.com.br', allUnits: true, lastAccessAt: new Date() },
     });
     await this.prisma.member.create({
-      data: { name: 'Lara Nunes', email: 'lara@hawkeye.com.br', allUnits: true, lastAccessAt: new Date() },
+      data: { name: 'Lara Nunes', matricula: '1002', email: 'lara@hawkeye.com.br', allUnits: true, lastAccessAt: new Date() },
     });
     await this.prisma.member.create({
       data: {
         name: 'Diego Alves',
+        matricula: '1003',
         email: 'diego@hawkeye.com.br',
         lastAccessAt: daysAgo(2),
         units: { connect: [{ id: linhaA.id }] },
@@ -38,17 +38,11 @@ export class TeamSeedService implements OnModuleInit {
     await this.prisma.member.create({
       data: {
         name: 'Carla Souza',
+        matricula: '1004',
         email: 'carla@hawkeye.com.br',
         lastAccessAt: new Date(),
-        units: { connect: [{ id: central.id }] },
+        units: { connect: [{ id: linhaC.id }] },
       },
-    });
-
-    await this.prisma.invite.create({
-      data: { name: 'Bruno Lima', email: 'bruno@hawkeye.com.br', units: { connect: [{ id: linhaB.id }] } },
-    });
-    await this.prisma.invite.create({
-      data: { email: 'convidado@hawkeye.com.br', allUnits: true },
     });
   }
 }

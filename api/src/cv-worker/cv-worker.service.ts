@@ -20,6 +20,8 @@ export interface CvImageResult {
   boxes_url: string;
   shafts_url: string;
   areas_count: number;
+  grid_rows: number;
+  grid_cols: number;
   pins_count: number;
   boxes_info: Record<string, unknown>;
   pin_classification: Record<string, unknown>;
@@ -42,5 +44,9 @@ export class CvWorkerService {
       this.http.post(`${this.workerUrl}/process`, { images }),
     );
     return data;
+  }
+
+  async ping(): Promise<void> {
+    await firstValueFrom(this.http.get(`${this.workerUrl}/health`, { timeout: 3000 }));
   }
 }

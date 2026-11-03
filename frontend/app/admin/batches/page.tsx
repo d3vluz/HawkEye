@@ -14,7 +14,11 @@ import {
 } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Search, Eye, ChevronRight, Loader2, Trash2 } from "lucide-react"
-import { getBatches, deleteBatch, type Batch } from "@/lib/api-client"
+import { ConfirmDialog } from "@/components/confirm-dialog"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { getBatches, deleteBatch, getInspectionSettings, getUnits, type Batch, type Unit } from "@/lib/api-client"
+
+const ALL_UNITS = "all"
 
 export default function LotesPage() {
   const router = useRouter()
@@ -22,16 +26,26 @@ export default function LotesPage() {
   const [batches, setBatches] = useState<Batch[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [deleting, setDeleting] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<Batch | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [units, setUnits] = useState<Unit[]>([])
+  const [unitFilter, setUnitFilter] = useState(ALL_UNITS)
+  const [qualityTarget, setQualityTarget] = useState<number | null>(null)
 
   useEffect(() => {
-    loadBatches()
+    getUnits().then(setUnits).catch(() => setUnits([]))
+    getInspectionSettings().then((s) => setQualityTarget(s.minQualityScore)).catch(() => setQualityTarget(null))
   }, [])
 
-  const loadBatches = async () => {
+  useEffect(() => {
+    loadBatches(unitFilter)
+  }, [unitFilter])
+
+  const loadBatches = async (unit: string) => {
     try {
       setLoading(true)
-      const { batches: data } = await getBatches() // Carregar todos
+      const { batches: data } = await getBatches(unit === ALL_UNITS ? undefined : unit)
       setBatches(data)
       setError(null)
     } catch (err) {
@@ -42,21 +56,19 @@ export default function LotesPage() {
     }
   }
 
-  const handleDelete = async (batchId: string, batchName: string) => {
-    if (!confirm(`Tem certeza que deseja deletar o lote "${batchName}"?\n\nEsta ação não pode ser desfeita.`)) {
-      return
-    }
+  const handleDelete = async () => {
+    if (!deleteTarget) return
 
     try {
-      setDeleting(batchId)
-      await deleteBatch(batchId)
-      // Atualizar lista removendo o batch deletado
-      setBatches(batches.filter(b => b.id !== batchId))
+      setDeleting(true)
+      await deleteBatch(deleteTarget.id)
+      setBatches(batches.filter(b => b.id !== deleteTarget.id))
+      setDeleteTarget(null)
     } catch (err) {
-      console.error('Erro ao deletar lote:', err)
-      alert('Erro ao deletar lote. Tente novamente.')
+      console.error('Erro ao excluir lote:', err)
+      setDeleteError('Não foi possível excluir o lote. Tente novamente.')
     } finally {
-      setDeleting(null)
+      setDeleting(false)
     }
   }
 
@@ -77,11 +89,18 @@ export default function LotesPage() {
   const filteredBatches = batches.filter(batch => {
     const matchesSearch = 
       batch.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (batch.description?.toLowerCase().includes(searchTerm.toLowerCase()) || false)
+      (batch.description?.toLowerCase().includes(searchTerm.toLowerCase()) || false) ||
+      (batch.author?.name?.toLowerCase().includes(searchTerm.toLowerCase()) || false) ||
+      (batch.author?.matricula.toLowerCase().includes(searchTerm.toLowerCase()) || false)
     return matchesSearch
   })
 
-  if (loading) {
+  const qualityClass = (score: number) => {
+    if (qualityTarget === null) return score >= 80 ? 'text-success-emphasis' : score >= 60 ? 'text-warning-emphasis' : 'text-danger-emphasis'
+    return score >= qualityTarget ? 'text-success-emphasis' : 'text-danger-emphasis'
+  }
+
+  if (loading && batches.length === 0) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
@@ -126,6 +145,15 @@ export default function LotesPage() {
               </h2>
             </div>
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+              <Select value={unitFilter} onValueChange={setUnitFilter}>
+                <SelectTrigger className="h-9 w-full sm:w-44" aria-label="Filtrar por linha">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_UNITS}>Todas as linhas</SelectItem>
+                  {units.map((u) => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
               {/* Search */}
               <div className="relative w-full sm:w-64">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -142,11 +170,13 @@ export default function LotesPage() {
 
           {/* Table Wrapper com Scroll Horizontal */}
           <div className="overflow-x-auto">
-            <Table className="min-w-[900px]">
+            <Table className="min-w-[1190px]">
               <TableHeader>
                 <TableRow className="hover:bg-transparent border-b border-border">
                   <TableHead className="font-semibold text-foreground text-xs w-[200px] pl-6">Código</TableHead>
-                  <TableHead className="font-semibold text-foreground text-xs w-[280px]">Descrição</TableHead>
+                  <TableHead className="font-semibold text-foreground text-xs w-[240px]">Descrição</TableHead>
+                  <TableHead className="font-semibold text-foreground text-xs w-[180px]">Coletado por</TableHead>
+                  <TableHead className="font-semibold text-foreground text-xs w-[110px]">Linha</TableHead>
                   <TableHead className="font-semibold text-foreground text-xs w-[100px] text-center">Imagens</TableHead>
                   <TableHead className="font-semibold text-foreground text-xs w-[100px] text-center">Defeitos</TableHead>
                   <TableHead className="font-semibold text-foreground text-xs w-[110px] text-center">Qualidade</TableHead>
@@ -166,6 +196,19 @@ export default function LotesPage() {
                     <TableCell className="text-sm text-muted-foreground">
                       {batch.description || '-'}
                     </TableCell>
+                    <TableCell className="text-sm">
+                      {batch.author ? (
+                        <div>
+                          <p className="font-medium text-foreground">{batch.author.name ?? "Membro removido"}</p>
+                          <p className="text-xs text-muted-foreground">Matrícula {batch.author.matricula}</p>
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-sm text-foreground">
+                      {batch.unit?.name ?? <span className="text-muted-foreground">Sem linha</span>}
+                    </TableCell>
                     <TableCell className="text-sm text-foreground text-center">
                       <div className="flex flex-col items-center">
                         <span className="font-semibold tabular-nums">{batch.total_captures}</span>
@@ -178,13 +221,12 @@ export default function LotesPage() {
                     </TableCell>
                     <TableCell className="text-sm text-center">
                       <div className="flex flex-col items-center">
-                        <span className={`font-semibold tabular-nums ${
-                          (batch.quality_score || 0) >= 80 ? 'text-success-emphasis' :
-                          (batch.quality_score || 0) >= 60 ? 'text-warning-emphasis' :
-                          'text-danger-emphasis'
-                        }`}>
+                        <span className={`font-semibold tabular-nums ${qualityClass(batch.quality_score || 0)}`}>
                           {formatQualityScore(batch.quality_score)}
                         </span>
+                        {qualityTarget !== null && (batch.quality_score || 0) < qualityTarget && (
+                          <span className="text-[11px] text-muted-foreground">abaixo da meta</span>
+                        )}
                       </div>
                     </TableCell>
                     <TableCell className="text-sm text-foreground text-center">
@@ -205,15 +247,11 @@ export default function LotesPage() {
                           size="sm"
                           variant="ghost"
                           className="h-8 w-8 p-0 hover:bg-danger/10"
-                          onClick={() => handleDelete(batch.id, batch.name)}
-                          disabled={deleting === batch.id}
-                          title="Deletar lote"
+                          onClick={() => { setDeleteError(null); setDeleteTarget(batch) }}
+                          title="Excluir lote"
+                          aria-label={`Excluir ${batch.name}`}
                         >
-                          {deleting === batch.id ? (
-                            <Loader2 className="h-4 w-4 text-danger-emphasis animate-spin" />
-                          ) : (
-                            <Trash2 className="h-4 w-4 text-danger-emphasis" />
-                          )}
+                          <Trash2 className="h-4 w-4 text-danger-emphasis" />
                         </Button>
                       </div>
                     </TableCell>
@@ -231,12 +269,24 @@ export default function LotesPage() {
                 Nenhum lote encontrado
               </h3>
               <p className="text-sm text-muted-foreground text-center">
-                {searchTerm ? 'Tente ajustar sua busca' : 'Processe alguns lotes para começar'}
+                {searchTerm || unitFilter !== ALL_UNITS ? 'Tente ajustar a busca ou a linha' : 'Processe alguns lotes para começar'}
               </p>
             </div>
           )}
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title={`Excluir o lote ${deleteTarget?.name ?? ""}?`}
+        description="As imagens são apagadas do armazenamento e o lote sai das métricas. Esta ação não pode ser desfeita."
+        confirmLabel="Excluir lote"
+        pendingLabel="Excluindo..."
+        pending={deleting}
+        error={deleteError}
+        onConfirm={handleDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   )
 }

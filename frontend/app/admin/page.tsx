@@ -6,18 +6,26 @@ import KPICards from "@/components/dashboard/kpi-cards"
 import DefectRanking from "@/components/dashboard/defect-ranking"
 import QualityCharts from "@/components/dashboard/quality-charts"
 import BatchMetrics from "@/components/dashboard/batch-metrics"
-import { getDashboardMetrics, type DashboardMetrics } from "@/lib/api-client"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { getDashboardMetrics, getUnits, type DashboardMetrics, type Unit } from "@/lib/api-client"
+
+const ALL_UNITS = "all"
 
 export default function DashboardPage() {
   const [dashboardData, setDashboardData] = useState<DashboardMetrics | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [units, setUnits] = useState<Unit[]>([])
+  const [unitFilter, setUnitFilter] = useState(ALL_UNITS)
+
+  useEffect(() => {
+    getUnits().then(setUnits).catch(() => setUnits([]))
+  }, [])
 
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
-        setLoading(true)
-        const data = await getDashboardMetrics()
+        const data = await getDashboardMetrics(unitFilter === ALL_UNITS ? undefined : unitFilter)
         setDashboardData(data)
         setError(null)
       } catch (err) {
@@ -33,7 +41,7 @@ export default function DashboardPage() {
     const interval = setInterval(fetchDashboardData, 30000)
     
     return () => clearInterval(interval)
-  }, [])
+  }, [unitFilter])
 
   if (loading) {
     return (
@@ -55,8 +63,21 @@ export default function DashboardPage() {
           <ChevronRight className="h-3 w-3 text-muted-foreground"/>
           <span className="text-foreground">DASHBOARD</span>
         </div>
-        <h1 className="text-3xl font-bold text-foreground mb-2">Dashboard</h1>
-        <p className="text-muted-foreground text-sm">Visualize métrica de todos os lotes de imagens processados pelo sistema</p>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-foreground mb-2">Dashboard</h1>
+            <p className="text-muted-foreground text-sm">Visualize métrica de todos os lotes de imagens processados pelo sistema</p>
+          </div>
+          <Select value={unitFilter} onValueChange={setUnitFilter}>
+            <SelectTrigger className="h-9 w-full sm:w-48" aria-label="Filtrar por linha">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_UNITS}>Todas as linhas</SelectItem>
+              {units.map((u) => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {error && (

@@ -23,6 +23,8 @@ export class CaptureDto {
   @IsOptional() @IsString() processed_shaft_uri?: string;
   @IsBoolean() is_valid: boolean;
   @IsNumber() areas_detected: number;
+  @IsOptional() @IsNumber() grid_rows?: number;
+  @IsOptional() @IsNumber() grid_cols?: number;
   @IsNumber() pins_detected: number;
   @IsNumber() defects_count: number;
   @IsBoolean() has_missing_pins: boolean;
@@ -36,6 +38,7 @@ export class CaptureDto {
 
 export class CreateBatchDto {
   @IsString() name: string;
+  @IsString() unit_id: string;
   @IsOptional() @IsString() description?: string;
   @IsOptional() @IsString() batch_timestamp?: string;
   @IsArray() @ValidateNested({ each: true }) @Type(() => CaptureDto) captures: CaptureDto[];

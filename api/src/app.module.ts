@@ -9,12 +9,15 @@ import { BatchesModule } from './batches/batches.module';
 import { MetricsModule } from './metrics/metrics.module';
 import { HealthModule } from './health/health.module';
 import { TeamModule } from './team/team.module';
+import { AuthModule } from './auth/auth.module';
+import { SettingsModule } from './settings/settings.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     HttpModule,
     PrismaModule,
+    AuthModule,
     StorageModule,
     CvWorkerModule,
     ImagesModule,
@@ -22,6 +25,7 @@ import { TeamModule } from './team/team.module';
     MetricsModule,
     HealthModule,
     TeamModule,
+    SettingsModule,
   ],
 })
 export class AppModule {}

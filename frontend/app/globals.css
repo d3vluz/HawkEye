@@ -145,6 +145,7 @@
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary-emphasis: var(--primary-emphasis);
+  --font-sans: var(--font-inter), system-ui, sans-serif;
   --color-signal: var(--signal);
   --color-signal-deep: var(--signal-deep);
   --color-secondary: var(--secondary);
@@ -204,5 +205,57 @@
 
   * {
     scrollbar-color: var(--graphite-600) transparent;
+  }
+}
+
+input::-ms-reveal {
+  display: none;
+}
+
+input:-webkit-autofill {
+  --autofill-surface: var(--card);
+  -webkit-text-fill-color: var(--foreground);
+  caret-color: var(--foreground);
+  box-shadow: inset 0 0 0 1000px var(--autofill-surface), var(--tw-ring-shadow, 0 0 #0000);
+}
+
+.dark input:-webkit-autofill {
+  --autofill-surface: color-mix(in oklab, var(--input) 30%, var(--background));
+}
+
+/* Varredura única do painel de login, sincronizada coluna a coluna. */
+.inspection-sweep {
+  opacity: 0;
+  animation: inspection-sweep 1.2s linear 0.2s;
+}
+
+.inspection-cell {
+  animation: inspection-cell 0.7s ease-out calc(0.2s + var(--column) * 0.2s);
+}
+
+@keyframes inspection-sweep {
+  0% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+}
+
+@keyframes inspection-cell {
+  20% {
+    background-color: color-mix(in oklab, var(--signal) 24%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inspection-sweep,
+  .inspection-cell {
+    animation: none;
   }
 }

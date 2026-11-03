@@ -18,8 +18,8 @@ import {
 } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 
-import { Header } from "@/components/Header"
-import { Footer } from "@/components/Footer"
+import { apiFetch, getInspectionSettings, getMyUnits, type InspectionSettings, type Unit } from "@/lib/api-client"
+import { detectedDefects, evaluateCapture } from "@/lib/inspection"
 import { cn } from "@/lib/utils"
 
 // --- INTERFACES ---
@@ -65,6 +65,8 @@ interface ProcessedImage {
   boxes_url: string
   shafts_url: string
   areas_count: number
+  grid_rows?: number
+  grid_cols?: number
   pins_count: number
   boxes_info: {
     total_boxes: number
@@ -84,7 +86,6 @@ interface ProcessedImage {
   shaft_classification: ShaftClassification
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"
 
 export default function ResultsPage() {
   const [images, setImages] = useState<ProcessedImage[]>([])
@@ -92,6 +93,9 @@ export default function ResultsPage() {
   const [selectedView, setSelectedView] = useState<string>("original")
   const [loteName, setLoteName] = useState<string>("")
   const [loteDescription, setLoteDescription] = useState<string>("")
+  const [units, setUnits] = useState<Unit[] | null>(null)
+  const [unitId, setUnitId] = useState<string>("")
+  const [criteria, setCriteria] = useState<InspectionSettings | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
@@ -111,12 +115,12 @@ export default function ResultsPage() {
         } else if (usingGlobal === "true" && ('globalProcessedImages' in window)) {
           setImages((window as { globalProcessedImages?: ProcessedImage[] }).globalProcessedImages || [])
         } else {
-          router.push("/")
+          router.push("/inspecao")
           return
         }
       } catch (error) {
         console.error("Erro ao carregar dados:", error)
-        router.push("/")
+        router.push("/inspecao")
       } finally {
         setIsLoading(false)
       }
@@ -124,6 +128,16 @@ export default function ResultsPage() {
 
     loadData()
   }, [router])
+
+  useEffect(() => {
+    getMyUnits()
+      .then((mine) => {
+        setUnits(mine)
+        if (mine.length === 1) setUnitId(mine[0].id)
+      })
+      .catch(() => setUnits([]))
+    getInspectionSettings().then(setCriteria).catch(() => setCriteria(null))
+  }, [])
 
   const selectedImage = images[selectedImageIndex]
 
@@ -141,8 +155,12 @@ export default function ResultsPage() {
 
   // --- Ações ---
   const handleAprovarLote = async () => {
+    if (!unitId) {
+      setSaveError("Escolha a linha de onde vieram as peças.")
+      return
+    }
     if (!loteName.trim()) {
-      alert("Por favor, preencha o nome do lote")
+      setSaveError("Preencha o nome do lote.")
       return
     }
     setIsSaving(true)
@@ -172,6 +190,7 @@ export default function ResultsPage() {
         const criticalPins = img.pin_classification?.critical_pins || 0
         const rejectedShafts = img.shaft_classification?.rejected_shafts || 0
         const totalDefects = emptyBoxes + multipleBoxes + invalidPins + criticalPins + rejectedShafts
+        const flags = detectedDefects(img)
 
         return {
           filename: img.filename,
@@ -183,38 +202,44 @@ export default function ResultsPage() {
           processed_shaft_uri: img.shafts_url,
           is_valid: totalDefects === 0,
           areas_detected: img.areas_count,
+          grid_rows: img.grid_rows,
+          grid_cols: img.grid_cols,
           pins_detected: img.pins_count,
           defects_count: totalDefects,
-          has_missing_pins: emptyBoxes > 0,
-          has_extra_pins: multipleBoxes > 0,
-          has_damaged_pins: (img.pin_classification?.details?.pins_damaged_yellow || 0) > 0,
-          has_wrong_color_pins: (img.pin_classification?.details?.pins_wrong_color || 0) > 0,
+          has_missing_pins: flags.hasMissingPins,
+          has_extra_pins: flags.hasExtraPins,
+          has_damaged_pins: flags.hasDamagedPins,
+          has_wrong_color_pins: flags.hasWrongColorPins,
           has_structure_damage: false,
-          has_shaft_defects: rejectedShafts > 0,
+          has_shaft_defects: flags.hasShaftDefects,
           compartments: compartments
         }
       })
 
       const requestData = {
         name: loteName,
+        unit_id: unitId,
         description: loteDescription,
         batch_timestamp: images[0]?.timestamp ?? "",
         captures: capturesData,
       }
 
-      const response = await fetch(`${API_URL}/api/batches/create`, {
+      const response = await apiFetch(`/api/batches/create`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestData)
       })
 
-      if (!response.ok) throw new Error("Erro ao salvar lote")
+      if (!response.ok) {
+        const data = await response.json().catch(() => null)
+        throw new Error(typeof data?.message === "string" ? data.message : "Erro ao salvar lote")
+      }
 
       setSaveSuccess(true)
       setTimeout(() => {
         sessionStorage.removeItem("processedImages")
         sessionStorage.removeItem("usingGlobalMemory")
-        router.push("/admin/batches")
+        router.push("/coletas")
       }, 2000)
 
     } catch (error) {
@@ -230,14 +255,14 @@ export default function ResultsPage() {
     try {
       const timestamp = images[0]?.timestamp
       if (!timestamp) throw new Error("Timestamp inválido")
-      await fetch(`${API_URL}/api/batches/reject`, {
+      await apiFetch(`/api/batches/reject`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ timestamp })
       })
       sessionStorage.removeItem("processedImages")
       sessionStorage.removeItem("usingGlobalMemory")
-      router.push("/")
+      router.push("/inspecao")
     } catch (_error) {
       setSaveError("Erro ao rejeitar lote")
     } finally {
@@ -263,12 +288,12 @@ export default function ResultsPage() {
     (selectedImage.pin_classification?.critical_pins || 0) +
     (selectedImage.shaft_classification?.rejected_shafts || 0)
 
-  const isCurrentValid = totalDefectsCurrent === 0
+  const currentVerdict = criteria ? evaluateCapture(criteria, selectedImage) : null
+  const isCurrentValid = currentVerdict ? currentVerdict.isValid : totalDefectsCurrent === 0
   const shaftStats = calculateShaftAverages(selectedImage.shaft_classification)
 
   return (
     <div className="min-h-screen flex flex-col bg-background text-foreground">
-      <Header />
       
       <main className="flex-1 container mx-auto py-6 px-4 lg:px-8 space-y-6">
         {saveSuccess && (
@@ -295,6 +320,7 @@ export default function ResultsPage() {
                   <CardTitle className="text-lg font-bold flex items-center gap-2">
                     {selectedImage.filename}
                     {!isCurrentValid && <Badge variant="destructive" className="ml-2">Com Defeitos</Badge>}
+                    {currentVerdict?.hasStructureDamage && <Badge variant="outline" className="ml-1 border-warning/50 text-warning-emphasis">Grade fora do padrão</Badge>}
                   </CardTitle>
                   <p className="text-xs text-muted-foreground font-mono mt-0.5">{selectedImage.sha256.substring(0, 12)}...</p>
                 </div>
@@ -580,6 +606,18 @@ export default function ResultsPage() {
             {/* Formulário de Aprovação/Rejeição */}
             <div className="flex flex-col sm:flex-row gap-4 w-full lg:w-auto items-start">
               <div className="flex flex-col gap-2 w-full sm:w-[350px]">
+                {units && units.length === 0 ? (
+                  <p className="text-xs text-warning-emphasis">Você não tem linha atribuída. Fale com o administrador para aprovar o lote.</p>
+                ) : (
+                  <Select value={unitId} onValueChange={setUnitId} disabled={!units}>
+                    <SelectTrigger className="h-9" aria-label="Linha">
+                      <SelectValue placeholder={units ? "Linha de produção" : "Carregando linhas..."} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {units?.map((u) => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                )}
                 <Input
                   id="lote-name"
                   placeholder="Nome do Lote"
@@ -599,7 +637,7 @@ export default function ResultsPage() {
                 <Button
                   className="w-full bg-success text-success-foreground hover:bg-success/90 h-9"
                   onClick={handleAprovarLote}
-                  disabled={isSaving}
+                  disabled={isSaving || units?.length === 0}
                 >
                   {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
                   Aprovar
@@ -620,7 +658,6 @@ export default function ResultsPage() {
         </Card>
       </main>
 
-      <Footer />
     </div>
   )
 }

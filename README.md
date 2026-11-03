@@ -60,7 +60,11 @@ A separação é **intencional, por responsabilidade**:
 ### Fluxo principal
 
 ```
-Upload (frontend)
+Login (/)
+  → funcionário: /inspecao    upload e revisão de lotes
+  → admin: /admin             métricas, lotes e equipe
+
+Upload (/inspecao)
   → POST /upload-batch        NestJS → MinIO (bucket review)
   → POST /process-images      NestJS → FastAPI /process → pipeline OpenCV → review
   → /results                  revisão humana (aprovar ou rejeitar)
@@ -69,6 +73,16 @@ Upload (frontend)
 ```
 
 Rejeitar (`POST /api/batches/reject`) apaga a pasta do lote no bucket `review`. **Sem cache em memória** o storage temporário é o próprio bucket `review` do MinIO.
+
+### Autenticação
+
+- Login por matrícula ou e-mail e senha, com hash Argon2 e limite de tentativas.
+- Sessão JWT de 8 horas em cookie `httpOnly`. A API confere o membro no banco a cada requisição, então remover uma conta ou trocar sua senha encerra as sessões abertas.
+- Dois perfis com áreas separadas: `ADMIN` (`/admin`) e `EMPLOYEE` (`/inspecao`). As regras valem no middleware do Next.js e nos guards do NestJS.
+- O admin define uma senha temporária, que precisa ser trocada no primeiro acesso.
+- O startup cria, se ainda não existirem, as contas `admin` / `admin` e `funcionario` / `funcionario`. Troque essas senhas antes de expor o sistema fora do ambiente local.
+
+Os buckets do MinIO continuam públicos: quem tiver a URL de uma imagem consegue abri-la sem login.
 
 ---
 
@@ -113,6 +127,7 @@ Rejeitar (`POST /api/batches/reject`) apaga a pasta do lote no bucket `review`. 
    ```bash
    cp .env.example .env
    ```
+   Preencha `JWT_SECRET`. A aplicação não sobe sem esse valor.
 
 3. **Suba o ecossistema:**
    ```bash
@@ -129,9 +144,11 @@ Rejeitar (`POST /api/batches/reject`) apaga a pasta do lote no bucket `review`. 
 ## Estrutura
 
 ```
-frontend/   Next.js 15 - interface (upload, /results, /admin)
+frontend/   Next.js 15 - interface (login, /inspecao, /results, /coletas, /admin)
 api/        NestJS - orquestrador HTTP
   src/
+    auth/       login, sessão e permissões por perfil
+    team/       membros e unidades
     images/     upload (multer → MinIO) + proxy para o worker
     batches/    CRUD de lotes (DB + move/delete no MinIO)
     metrics/    agregação do dashboard
@@ -151,15 +168,21 @@ docker-compose.yml
 
 ### Principais endpoints (API)
 
-| Método | Rota | Descrição |
-|--------|------|-----------|
-| `POST` | `/upload-batch` | Envia imagens para o bucket `review` |
-| `POST` | `/process-images` | Dispara o pipeline no worker |
-| `POST` | `/api/batches/create` | Aprova o lote (persiste + move para `permanent`) |
-| `POST` | `/api/batches/reject` | Rejeita e apaga do `review` |
-| `GET`  | `/api/batches` · `/api/batches/:id` | Lista / detalha lotes |
-| `GET`  | `/api/metrics/dashboard` | Métricas do dashboard |
-| `GET`  | `/health` | Healthcheck |
+| Método | Rota | Perfil | Descrição |
+|--------|------|--------|-----------|
+| `POST` | `/api/auth/login` · `/api/auth/logout` | público | Inicia / encerra a sessão |
+| `GET`  | `/api/auth/me` | autenticado | Dados da sessão |
+| `POST` | `/api/auth/change-password` | autenticado | Troca a senha |
+| `POST` | `/upload-batch` | funcionário | Envia imagens para o bucket `review` |
+| `POST` | `/process-images` | funcionário | Dispara o pipeline no worker |
+| `POST` | `/api/batches/create` | funcionário | Aprova o lote (persiste + move para `permanent`) |
+| `POST` | `/api/batches/reject` | funcionário | Rejeita e apaga do `review` |
+| `GET`  | `/api/batches` · `/api/batches/:id` | admin | Lista / detalha lotes, com autor |
+| `GET`  | `/api/batches/mine` · `/api/batches/mine/:id` | funcionário | Coletas da própria pessoa |
+| `GET`  | `/api/metrics/dashboard` | admin | Métricas do dashboard |
+| `GET`  | `/api/team/overview` | admin | Métricas da equipe |
+| `*`    | `/api/members` · `/api/units` | admin | Gestão de equipe |
+| `GET`  | `/health` | público | Healthcheck |
 
 ### Banco de dados
 

@@ -8,7 +8,9 @@ import {
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { ImagesService } from './images.service';
+import { Roles } from '../auth/decorators';
 
+@Roles('EMPLOYEE')
 @Controller()
 export class ImagesController {
   constructor(private readonly images: ImagesService) {}

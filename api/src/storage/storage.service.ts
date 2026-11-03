@@ -7,7 +7,11 @@ import {
   DeleteObjectCommand,
   ListObjectsV2Command,
   DeleteObjectsCommand,
+  HeadBucketCommand,
+  _Object,
 } from '@aws-sdk/client-s3';
+
+const MAX_KEYS_PER_DELETE = 1000;
 
 @Injectable()
 export class StorageService {
@@ -61,6 +65,35 @@ export class StorageService {
     } catch {
       return false;
     }
+  }
+
+  async deleteByUrls(urls: Array<string | null>, bucket: string): Promise<void> {
+    await this.deleteKeys(urls.flatMap((url) => url?.split(`/${bucket}/`)[1] || []), bucket);
+  }
+
+  async deleteKeys(keys: string[], bucket: string): Promise<void> {
+    for (let start = 0; start < keys.length; start += MAX_KEYS_PER_DELETE) {
+      const { Errors } = await this.client.send(new DeleteObjectsCommand({
+        Bucket: bucket,
+        Delete: { Objects: keys.slice(start, start + MAX_KEYS_PER_DELETE).map((Key) => ({ Key })) },
+      }));
+      if (Errors?.length) throw new Error(`Falha ao apagar ${Errors.length} imagens do storage`);
+    }
+  }
+
+  async listAll(bucket: string): Promise<_Object[]> {
+    const objects: _Object[] = [];
+    let token: string | undefined;
+    do {
+      const page = await this.client.send(new ListObjectsV2Command({ Bucket: bucket, ContinuationToken: token }));
+      objects.push(...(page.Contents ?? []));
+      token = page.NextContinuationToken;
+    } while (token);
+    return objects;
+  }
+
+  async ping(bucket: string): Promise<void> {
+    await this.client.send(new HeadBucketCommand({ Bucket: bucket }));
   }
 
   async deleteFolder(prefix: string, bucket?: string): Promise<void> {
