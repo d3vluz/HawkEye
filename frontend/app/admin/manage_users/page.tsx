@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet"
 import { cn, formatLastAccess, isToday } from "@/lib/utils"
+import { formatPhone, isCompletePhone, phoneDigits } from "@/lib/phone"
 import {
   avatarUrl, createMember, deleteMember, getMe, getMembers, getTeamOverview, getUnits,
   resetMemberPassword, updateMember, updateMemberRole,
@@ -169,13 +170,14 @@ export default function TeamPage() {
   const filteredMembers = useMemo(() => {
     const q = search.trim().toLowerCase()
     if (!q) return members
-    return members.filter((m) => matches(q, m.name, m.matricula, m.email, m.phone))
+    const qDigits = phoneDigits(q)
+    return members.filter((m) => matches(q, m.name, m.matricula, m.email) || (qDigits !== "" && !!m.phone && phoneDigits(m.phone).includes(qDigits)))
   }, [members, search])
 
   const openSheet = (member: Member | null) => {
     setEditing(member)
     setFormName(member?.name ?? ""); setFormMatricula(member?.matricula ?? "")
-    setFormPhone(member?.phone ?? ""); setFormEmail(member?.email ?? "")
+    setFormPhone(formatPhone(member?.phone)); setFormEmail(member?.email ?? "")
     setFormPassword(""); setFormAllUnits(true); setFormUnitIds([]); setFormError(null)
     setSheetOpen(true)
   }
@@ -186,10 +188,11 @@ export default function TeamPage() {
 
   const saveForm = async () => {
     const name = formName.trim()
-    const phone = formPhone.trim()
+    const phone = phoneDigits(formPhone)
     const email = formEmail.trim()
 
     if (!name) throw new Error("Informe o nome.")
+    if (phone && !isCompletePhone(phone)) throw new Error("Informe o telefone com DDD, com 10 ou 11 dígitos.")
     if (editing) return updateMember(editing.id, { name, phone: phone || null, email: email || null })
 
     if (!formMatricula.trim()) throw new Error("Informe a matrícula.")
@@ -358,7 +361,7 @@ export default function TeamPage() {
               {filteredMembers.map((m) => (
                 <tr key={m.id} className="border-b border-border/60 last:border-0 transition-colors hover:bg-muted/30">
                   <td className={TD}><Person member={m} /></td>
-                  <td className={cn(TD, "text-muted-foreground tabular-nums")}>{m.phone || "—"}</td>
+                  <td className={cn(TD, "whitespace-nowrap text-muted-foreground tabular-nums")}>{formatPhone(m.phone) || "—"}</td>
                   <td className={TD}>{unitsLabel(m.allUnits, m.units)}</td>
                   <td className={TD}>
                     <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
@@ -419,7 +422,7 @@ export default function TeamPage() {
               <Input id="member-matricula" value={formMatricula} disabled={editing !== null} onChange={(e) => setFormMatricula(e.target.value)} placeholder="Ex.: 1001" />
             </FormField>
             <FormField id="member-phone" label="Telefone">
-              <Input id="member-phone" type="tel" value={formPhone} onChange={(e) => setFormPhone(e.target.value)} placeholder="(11) 91234-5678" />
+              <Input id="member-phone" type="tel" inputMode="numeric" autoComplete="tel-national" value={formPhone} onChange={(e) => setFormPhone(formatPhone(e.target.value))} placeholder="(11) 91234-5678" />
             </FormField>
             <FormField id="member-email" label="E-mail">
               <Input id="member-email" type="email" value={formEmail} onChange={(e) => setFormEmail(e.target.value)} placeholder="pessoa@empresa.com" />

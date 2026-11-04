@@ -80,7 +80,7 @@ Rejeitar (`POST /api/batches/reject`) apaga a pasta do lote no bucket `review`. 
 - Sessão JWT de 8 horas em cookie `httpOnly`. A API confere o membro no banco a cada requisição, então remover uma conta ou trocar sua senha encerra as sessões abertas.
 - Dois perfis com áreas separadas: `ADMIN` (`/admin`) e `EMPLOYEE` (`/inspecao`). As regras valem no middleware do Next.js e nos guards do NestJS.
 - O admin define uma senha temporária, que precisa ser trocada no primeiro acesso.
-- O startup cria, se ainda não existirem, as contas `admin` / `admin` e `funcionario` / `funcionario`. Troque essas senhas antes de expor o sistema fora do ambiente local.
+- O startup cria, se ainda não existirem, as contas `admin` / `admin` e `user` / `user`. Troque essas senhas antes de expor o sistema fora do ambiente local.
 
 Os buckets do MinIO continuam públicos: quem tiver a URL de uma imagem consegue abri-la sem login.
 

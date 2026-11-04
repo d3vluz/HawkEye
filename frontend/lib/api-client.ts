@@ -71,20 +71,34 @@ export async function changePassword(currentPassword: string, newPassword: strin
     return res.json();
 }
 
+export interface PeriodSummary {
+    batches: number;
+    captures: number;
+    approvalRate: number | null;
+    defectsPerCapture: number | null;
+    belowTarget: number;
+}
+
 export interface DashboardMetrics {
-    totalBatches: number;
-    totalImages: number;
-    validImages: number;
-    totalDefects: number;
-    successRate: number;
-    qualityScore: number;
-    recentBatches: { id: string, name: string, totalCaptures: number, validCaptures: number, qualityScore: number, defectCount: number }[];
-    defectsRanking: { rank: number, code: string, label: string, count: number, severity: number, percentage: number }[];
-    dailyStats: { date: string, volume: number, valid: number, defects: number }[];
-    topDefects: { rank: number, code: string, label: string, count: number, severity: number, percentage: number }[];
-    defectTrends: { name: string, count: number, date: string }[];
-    errorDistribution: { name: string, value: number }[];
-    validityDistribution: { name: string, value: number, color: string }[];
+    periodDays: number;
+    qualityTarget: number;
+    totals: { batches: number; captures: number; approvalRate: number | null };
+    current: PeriodSummary;
+    previous: PeriodSummary;
+    series: { date: string; captures: number; approvalRate: number | null; defectsPerCapture: number | null }[];
+    defectsByType: { key: string; label: string; captures: number; share: number | null; previousShare: number | null }[];
+    units: ({ id: string | null; name: string } & PeriodSummary)[];
+    operators: ({ matricula: string; name: string | null } & PeriodSummary)[];
+    recentBatches: {
+        id: string;
+        name: string;
+        createdAt: string;
+        unit: Unit | null;
+        author: BatchAuthor | null;
+        captures: number;
+        approvalRate: number | null;
+        defects: number;
+    }[];
 }
 
 export interface BatchAuthor {

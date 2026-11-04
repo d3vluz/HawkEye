@@ -16,7 +16,7 @@ const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 // Credenciais fixas por decisão do projeto: acesso imediato após subir a stack.
 const DEFAULT_ACCOUNTS = [
   { matricula: 'admin', password: 'admin', name: 'Evandro Luz', role: MemberRole.ADMIN, githubUsername: 'd3vluz' },
-  { matricula: 'funcionario', password: 'funcionario', name: 'Funcionário', role: MemberRole.EMPLOYEE },
+  { matricula: 'user', password: 'user', name: 'Funcionário', role: MemberRole.EMPLOYEE },
 ];
 
 export interface SessionPayload {
