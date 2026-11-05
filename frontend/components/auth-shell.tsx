@@ -1,14 +1,14 @@
 "use client"
 
 import { useEffect, useState, type ComponentProps, type CSSProperties, type KeyboardEvent, type ReactNode } from "react"
-import { Eye, EyeOff, Moon, Sun } from "lucide-react"
+import { Eye, EyeOff, Github, Moon, Sun, type LucideIcon } from "lucide-react"
 import { useTheme } from "next-themes"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
 
-const FIELD_CLASS = "h-11 border-[var(--graphite-600)] bg-card shadow-none"
+const FIELD_CLASS = "h-11 border-[var(--graphite-600)]/40 bg-card shadow-none dark:border-[var(--graphite-600)]/60 transition-[border-color,box-shadow] hover:border-[var(--graphite-600)]"
 export const FORM_ERROR_ID = "form-error"
 
 const COLS = 5
@@ -196,13 +196,8 @@ function InspectionViewport() {
 
 function Showcase() {
   return (
-    <aside className="dark relative hidden min-h-dvh flex-col justify-between overflow-hidden bg-[var(--graphite-900)] px-12 py-10 text-[var(--graphite-50)] lg:flex xl:px-16">
-      <div className="flex items-center gap-2 text-sm text-[var(--graphite-200)]">
-        <span className="size-1.5 rounded-full bg-[var(--state-success)]" />
-        Inspeção de qualidade por visão computacional
-      </div>
-
-      <div className="mx-auto w-full max-w-xl py-10">
+    <aside className="dark relative hidden min-h-dvh flex-col overflow-hidden bg-[var(--graphite-900)] px-12 py-10 text-[var(--graphite-50)] lg:flex xl:px-16">
+      <div className="mx-auto flex w-full max-w-xl flex-1 flex-col justify-center py-10">
         <h2 className="text-3xl leading-[1.15] font-bold tracking-[-0.015em] text-balance xl:text-4xl">
           Cada componente medido. Cada defeito registrado.
         </h2>
@@ -230,30 +225,45 @@ function Showcase() {
   )
 }
 
+const REPOSITORY_URL = "https://github.com/d3vluz/HawkEye"
+
 export function AuthShell({ title, description, children }: { title: string; description: string; children: ReactNode }) {
   return (
-    <div className="grid min-h-dvh bg-background lg:grid-cols-[minmax(420px,5fr)_minmax(0,7fr)]">
-      <main className="flex min-w-0 flex-col px-6 py-6 sm:px-10 lg:border-r lg:border-border">
-        <div className="mx-auto flex w-full max-w-[380px] items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <LogoMark className="size-8 bg-foreground" />
-            <span className="text-base font-semibold tracking-tight text-foreground">HawkEye</span>
-          </div>
+    <div className="grid min-h-dvh bg-background lg:grid-cols-[minmax(460px,5fr)_minmax(0,7fr)]">
+      <main className="relative isolate flex min-w-0 flex-col overflow-hidden bg-card px-6 py-6 sm:px-10 lg:border-r lg:border-border xl:px-14">
+        <div aria-hidden className="auth-backdrop pointer-events-none absolute inset-x-0 top-0 -z-10 h-[420px]" />
+
+        <header className="flex justify-end">
           <ThemeToggle />
-        </div>
+        </header>
 
         <div className="flex flex-1 items-center justify-center py-12">
-          <div className="w-full max-w-[380px]">
-            <h1 className="text-[1.75rem] leading-tight font-bold tracking-[-0.015em] text-balance text-foreground">{title}</h1>
-            <p className="mt-2 mb-8 text-sm leading-relaxed text-pretty text-muted-foreground">{description}</p>
+          <div className="auth-enter w-full max-w-[400px]">
+            <div className="mb-10 flex items-center gap-3">
+              <span className="flex size-12 items-center justify-center rounded-xl border border-border bg-background">
+                <LogoMark className="size-8 bg-foreground" />
+              </span>
+              <span className="text-xl font-semibold tracking-tight text-foreground">HawkEye</span>
+            </div>
+            <h1 className="text-[2rem] leading-tight font-bold tracking-[-0.02em] text-balance text-foreground">{title}</h1>
+            <p className="mt-2 mb-8 text-[15px] leading-relaxed text-pretty text-muted-foreground">{description}</p>
             {children}
           </div>
         </div>
 
-        <div className="mx-auto flex w-full max-w-[380px] flex-wrap items-center justify-between gap-x-6 gap-y-1 text-xs text-muted-foreground">
+        <footer className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 text-xs text-muted-foreground">
           <span>© {new Date().getFullYear()} HawkEye</span>
-          <span>Acesso restrito a usuários autorizados</span>
-        </div>
+          <a
+            href={REPOSITORY_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-sm transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          >
+            <Github className="size-4" aria-hidden />
+            Código no GitHub
+            <span className="sr-only">(abre em nova aba)</span>
+          </a>
+        </footer>
       </main>
       <Showcase />
     </div>
@@ -273,18 +283,39 @@ export function FormError({ message }: { message: string | null }) {
   )
 }
 
-export function TextField({ id, label, invalid, ...props }: ComponentProps<typeof Input> & { id: string; label: string; invalid?: boolean }) {
+function FieldIcon({ icon: Icon }: { icon?: LucideIcon }) {
+  if (!Icon) return null
+  return (
+    <Icon
+      aria-hidden
+      className="pointer-events-none absolute top-1/2 left-3.5 size-[18px] -translate-y-1/2 text-muted-foreground transition-colors group-focus-within:text-primary-emphasis"
+    />
+  )
+}
+
+export function TextField({
+  id, label, invalid, icon, className, ...props
+}: ComponentProps<typeof Input> & { id: string; label: string; invalid?: boolean; icon?: LucideIcon }) {
   return (
     <div className="space-y-2">
       <Label htmlFor={id} className="font-medium text-foreground">{label}</Label>
-      <Input id={id} className={FIELD_CLASS} aria-invalid={invalid || undefined} aria-describedby={invalid ? FORM_ERROR_ID : undefined} {...props} />
+      <div className="group relative">
+        <FieldIcon icon={icon} />
+        <Input
+          id={id}
+          className={cn(FIELD_CLASS, icon && "pl-10", className)}
+          aria-invalid={invalid || undefined}
+          aria-describedby={invalid ? FORM_ERROR_ID : undefined}
+          {...props}
+        />
+      </div>
     </div>
   )
 }
 
 export function PasswordField({
-  id, label, hint, invalid, action, onKeyUp, onKeyDown, ...props
-}: ComponentProps<typeof Input> & { id: string; label: string; hint?: string; invalid?: boolean; action?: ReactNode }) {
+  id, label, hint, invalid, action, icon, onKeyUp, onKeyDown, ...props
+}: ComponentProps<typeof Input> & { id: string; label: string; hint?: string; invalid?: boolean; action?: ReactNode; icon?: LucideIcon }) {
   const [visible, setVisible] = useState(false)
   const [capsLock, setCapsLock] = useState(false)
   const describedBy = [hint && `${id}-hint`, capsLock && `${id}-caps`, invalid && FORM_ERROR_ID].filter(Boolean).join(" ")
@@ -297,11 +328,12 @@ export function PasswordField({
         <Label htmlFor={id} className="font-medium text-foreground">{label}</Label>
         {action}
       </div>
-      <div className="relative">
+      <div className="group relative">
+        <FieldIcon icon={icon} />
         <Input
           id={id}
           type={visible ? "text" : "password"}
-          className={cn(FIELD_CLASS, "pr-11")}
+          className={cn(FIELD_CLASS, "pr-11", icon && "pl-10")}
           aria-invalid={invalid || undefined}
           aria-describedby={describedBy || undefined}
           onKeyDown={(event) => { trackCapsLock(event); onKeyDown?.(event) }}

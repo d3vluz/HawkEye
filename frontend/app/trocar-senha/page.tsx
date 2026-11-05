@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, type FormEvent } from "react"
-import { Loader2 } from "lucide-react"
+import { Loader2, LockKeyhole } from "lucide-react"
 import { AuthShell, FormError, PasswordField } from "@/components/auth-shell"
 import { Button } from "@/components/ui/button"
 import { changePassword, homeFor, logout } from "@/lib/api-client"
@@ -46,6 +46,7 @@ export default function ChangePasswordPage() {
         <PasswordField
           id="current-password"
           label="Senha temporária"
+          icon={LockKeyhole}
           invalid={invalidField === "current"}
           autoComplete="current-password"
           required
@@ -55,6 +56,7 @@ export default function ChangePasswordPage() {
         <PasswordField
           id="new-password"
           label="Nova senha"
+          icon={LockKeyhole}
           invalid={invalidField === "new"}
           hint={`Use ao menos ${MIN_PASSWORD_LENGTH} caracteres.`}
           autoComplete="new-password"
@@ -65,6 +67,7 @@ export default function ChangePasswordPage() {
         <PasswordField
           id="confirm-password"
           label="Confirmar nova senha"
+          icon={LockKeyhole}
           invalid={invalidField === "confirmation"}
           autoComplete="new-password"
           required
@@ -72,12 +75,12 @@ export default function ChangePasswordPage() {
           onChange={(event) => setConfirmation(event.target.value)}
         />
         <FormError message={error} />
-        <Button type="submit" disabled={submitting} className="h-10 w-full font-semibold">
+        <Button type="submit" disabled={submitting} className="h-11 w-full text-[15px] font-semibold">
           {submitting && <Loader2 className="size-4 animate-spin" />}
-          {submitting ? "Salvando..." : "Salvar e continuar"}
+          {submitting ? "Salvando…" : "Salvar e continuar"}
         </Button>
       </form>
-      <Button type="button" variant="ghost" onClick={logout} className="mt-3 h-10 w-full text-muted-foreground">
+      <Button type="button" variant="ghost" onClick={logout} className="mt-3 h-11 w-full text-muted-foreground">
         Sair
       </Button>
     </AuthShell>

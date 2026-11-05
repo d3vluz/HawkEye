@@ -245,7 +245,23 @@ input:-webkit-autofill {
   to { opacity: 1; }
 }
 
+/* Grade de pontos que some em direção ao formulário: textura de instrumento sem competir com o conteúdo. */
+.auth-backdrop {
+  background-image: radial-gradient(color-mix(in oklab, var(--foreground) 14%, transparent) 1px, transparent 1px);
+  background-size: 22px 22px;
+  mask-image: radial-gradient(ellipse 80% 70% at 50% 0%, black, transparent 75%);
+}
+
+.auth-enter {
+  animation: auth-enter 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes auth-enter {
+  from { opacity: 0; transform: translateY(8px); }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .auth-enter,
   .auth-sweep,
   .auth-detection {
     animation: none;
