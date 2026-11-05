@@ -223,39 +223,31 @@ input:-webkit-autofill {
   --autofill-surface: color-mix(in oklab, var(--input) 30%, var(--background));
 }
 
-/* Varredura única do painel de login, sincronizada coluna a coluna. */
-.inspection-sweep {
+/* Varredura única do painel de login: cada caixa surge quando a linha passa pela sua coluna. */
+.auth-sweep {
   opacity: 0;
-  animation: inspection-sweep 1.2s linear 0.2s;
+  animation: auth-sweep 1.6s cubic-bezier(0.45, 0, 0.55, 1) 0.3s;
 }
 
-.inspection-cell {
-  animation: inspection-cell 0.7s ease-out calc(0.2s + var(--column) * 0.2s);
+.auth-detection {
+  animation: auth-detection 0.35s ease-out both;
+  animation-delay: calc(0.3s + (var(--column) + 0.5) * 0.32s);
 }
 
-@keyframes inspection-sweep {
-  0% {
-    opacity: 1;
-    transform: translateX(0);
-  }
-  90% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
-    transform: translateX(100%);
-  }
+@keyframes auth-sweep {
+  0% { opacity: 1; transform: translateX(0); }
+  92% { opacity: 1; }
+  100% { opacity: 0; transform: translateX(420px); }
 }
 
-@keyframes inspection-cell {
-  20% {
-    background-color: color-mix(in oklab, var(--signal) 24%, transparent);
-  }
+@keyframes auth-detection {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .inspection-sweep,
-  .inspection-cell {
+  .auth-sweep,
+  .auth-detection {
     animation: none;
   }
 }

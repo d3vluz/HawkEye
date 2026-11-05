@@ -24,7 +24,7 @@ export async function apiFetch(path: string, init: RequestInit = {}): Promise<Re
 
 export class InvalidCredentialsError extends Error {
     constructor() {
-        super("Credencial ou senha incorretas.");
+        super("Matrícula, e-mail ou senha incorretos.");
     }
 }
 

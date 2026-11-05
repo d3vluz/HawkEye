@@ -63,7 +63,7 @@ export class AuthService implements OnModuleInit {
     // Verifica mesmo sem conta para o tempo de resposta não revelar quais e-mails existem.
     const valid = await argon2.verify(member?.passwordHash ?? this.dummyHash, dto.password);
     if (!member?.passwordHash || !valid || member.status !== 'ACTIVE') {
-      throw new UnauthorizedException('Credencial ou senha inválidas');
+      throw new UnauthorizedException('Matrícula, e-mail ou senha incorretos');
     }
 
     const updated = await this.prisma.member.update({

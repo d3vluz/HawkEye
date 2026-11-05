@@ -30,11 +30,11 @@ export default function LoginPage() {
   }
 
   return (
-    <AuthShell title="Entrar no HawkEye" description="Use seu e-mail ou credencial e sua senha para acessar sua área.">
+    <AuthShell title="Acesse sua conta" description="Entre com a matrícula ou o e-mail cadastrado pelo administrador.">
       <form onSubmit={handleSubmit} className="space-y-5">
         <TextField
           id="identifier"
-          label="E-mail ou credencial"
+          label="Matrícula ou e-mail"
           type="text"
           autoComplete="username"
           autoCapitalize="none"
@@ -54,12 +54,14 @@ export default function LoginPage() {
           onChange={(event) => setPassword(event.target.value)}
         />
         <FormError message={error} />
-        <Button type="submit" disabled={submitting} className="h-10 w-full font-semibold">
+        <Button type="submit" disabled={submitting} className="h-11 w-full font-semibold">
           {submitting && <Loader2 className="size-4 animate-spin" />}
-          {submitting ? "Entrando..." : "Entrar"}
+          {submitting ? "Entrando…" : "Entrar"}
         </Button>
       </form>
-      <p className="mt-6 text-sm text-pretty text-muted-foreground">Sem acesso ou esqueceu a senha? Fale com o administrador.</p>
+      <p className="mt-8 border-t border-border pt-6 text-sm text-pretty text-muted-foreground">
+        Esqueceu a senha ou ainda não tem acesso? Peça ao administrador do sistema.
+      </p>
     </AuthShell>
   )
 }
