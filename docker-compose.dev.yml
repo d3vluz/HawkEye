@@ -4,6 +4,13 @@
 # O polling é necessário porque o Docker Desktop não repassa eventos de arquivo das pastas do Windows.
 
 services:
+  worker:
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./worker/src:/app/src
+    environment:
+      WATCHFILES_FORCE_POLLING: "true"
+
   api:
     build:
       target: builder

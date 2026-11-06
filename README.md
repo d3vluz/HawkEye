@@ -159,10 +159,10 @@ api/        NestJS - orquestrador HTTP
 worker/     FastAPI - worker de visão computacional
   src/
     main.py         FastAPI + POST /process
-    pipeline.py     orquestra os steps OpenCV
-    processing/     areas | pins | boxes | shafts
-    storage.py      download/upload via boto3
-  scripts/run_local.py   roda o pipeline no disco, sem Docker
+    analise.py      roda as etapas e monta o resultado
+    etapas/         grade | pinos | compartimentos | hastes
+    armazenamento.py leitura e gravação no MinIO
+  scripts/          executar_local.py (imagem do disco) e avaliar.py (acurácia no dataset)
 docker-compose.yml
 ```
 

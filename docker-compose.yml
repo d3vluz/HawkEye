@@ -64,14 +64,11 @@ services:
       dockerfile: Dockerfile
     container_name: hawkeye-worker
     restart: always
-    volumes:
-      - ./worker/src:/app/src
     environment:
       MINIO_ENDPOINT: http://minio:9000
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
       MINIO_BUCKET_REVIEW: ${MINIO_BUCKET_REVIEW:-review}
-      MINIO_BUCKET_PERMANENT: ${MINIO_BUCKET_PERMANENT:-permanent}
       MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:-http://localhost:9000}
     depends_on:
       minio-init:

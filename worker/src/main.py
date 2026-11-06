@@ -1,60 +1,45 @@
-from typing import List
+"""Servidor HTTP do worker: recebe da API as imagens de um lote, analisa cada uma e devolve o resultado."""
+
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-import config
-import storage
-from pipeline import run_pipeline
+import armazenamento
+from analise import analisar, resumo
 
-app = FastAPI(title="HawkEye Worker", version="1.0.0")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app = FastAPI(title="HawkEye Worker")
 
-class ImageInput(BaseModel):
+
+class Imagem(BaseModel):
     filename: str
     storage_path: str
     sha256: str
     timestamp: str
 
 
-class ProcessRequest(BaseModel):
-    images: List[ImageInput]
+class Pedido(BaseModel):
+    images: list[Imagem]
 
 
 @app.post("/process")
-def process(req: ProcessRequest):
-    results = []
-    for img in req.images:
-        original = storage.download_image(img.storage_path)
-        ctx = run_pipeline(original)
-
-        areas_key = storage.upload_processed_image(ctx.areas_img, img.timestamp, img.sha256, "areas")
-        pins_key = storage.upload_processed_image(ctx.pins_img, img.timestamp, img.sha256, "pins")
-        boxes_key = storage.upload_processed_image(ctx.boxes_img, img.timestamp, img.sha256, "boxes")
-        shafts_key = storage.upload_processed_image(ctx.shafts_img, img.timestamp, img.sha256, "shafts")
-
-        results.append({
+def processar(pedido: Pedido):
+    resultados = []
+    for img in pedido.images:
+        analise = analisar(armazenamento.baixar_imagem(img.storage_path))
+        urls = {
+            f"{etapa}_url": armazenamento.url_publica(armazenamento.enviar_imagem_anotada(imagem, img.timestamp, img.sha256, etapa))
+            for etapa, imagem in analise.imagens.items()
+        }
+        resultados.append({
             "filename": img.filename,
             "sha256": img.sha256,
             "timestamp": img.timestamp,
-            "original_url": storage.get_public_url(img.storage_path),
-            "areas_url": storage.get_public_url(areas_key),
-            "pins_url": storage.get_public_url(pins_key),
-            "boxes_url": storage.get_public_url(boxes_key),
-            "shafts_url": storage.get_public_url(shafts_key),
-            "areas_count": ctx.areas_count,
-            "grid_rows": ctx.grid.rows,
-            "grid_cols": ctx.grid.cols,
-            "missing_dividers": ctx.grid.missing_segments,
-            "pins_count": ctx.pins_count,
-            "boxes_info": ctx.boxes_info,
-            "pin_classification": ctx.pin_classification,
-            "shaft_classification": ctx.shaft_classification,
+            "original_url": armazenamento.url_publica(img.storage_path),
+            **urls,
+            **resumo(analise),
         })
-
-    return {"success": True, "processed_count": len(results), "results": results}
+    return {"success": True, "processed_count": len(resultados), "results": resultados}
 
 
 @app.get("/health")
-def health():
+def saude():
     return {"status": "ok"}
