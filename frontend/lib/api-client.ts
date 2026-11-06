@@ -137,6 +137,7 @@ export interface Capture {
     hasWrongColorPins?: boolean;
     hasStructureDamage?: boolean;
     hasShaftDefects?: boolean;
+    corrections?: Array<{ defect: string; detected: boolean; corrected: boolean }> | null;
 }
 
 function unitQuery(unitId?: string): string {

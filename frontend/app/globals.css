@@ -267,3 +267,9 @@ input:-webkit-autofill {
     animation: none;
   }
 }
+
+/* O Radix copia o z-index do menu para o contêiner na montagem e às vezes lê "auto",
+   o que deixa selects e popovers atrás de diálogos abertos. */
+[data-radix-popper-content-wrapper] {
+  z-index: 60 !important;
+}

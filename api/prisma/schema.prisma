@@ -54,6 +54,9 @@ model Capture {
   hasStructureDamage Boolean @default(false)
   hasShaftDefects   Boolean @default(false)
 
+  // Defeitos que o operador corrigiu na revisão: [{ defect, detected, corrected }].
+  corrections Json?
+
   createdAt DateTime @default(now())
 
   compartments Compartment[]

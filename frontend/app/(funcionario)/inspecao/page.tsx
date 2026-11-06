@@ -180,7 +180,7 @@ export default function HawkEyePage() {
       const processData = await processRes.json()
 
       sessionStorage.setItem("processedImages", JSON.stringify(processData.results))
-      sessionStorage.removeItem("usingGlobalMemory")
+      sessionStorage.removeItem("reviewOverrides")
 
       setUploadProgress("Concluído!")
       router.push("/results")

@@ -471,6 +471,7 @@ export function BatchDetail({ id, load, breadcrumb }: BatchDetailProps) {
                                                         ? 'Válida'
                                                         : `Inválida • ${capture.defects_count || 0} defeitos`
                                                     }
+                                                    {capture.corrections?.length ? ' • corrigida na revisão' : ''}
                                                 </p>
                                             </div>
                                         </button>

@@ -14,6 +14,7 @@ export interface DetectedDefects {
   hasDamagedPins: boolean;
   hasWrongColorPins: boolean;
   hasShaftDefects: boolean;
+  structureOverride?: boolean;
 }
 
 @Injectable()
@@ -40,9 +41,9 @@ export class InspectionSettingsService {
     });
   }
 
-  // O veredito sai daqui e não do navegador: o cliente só informa o que o worker detectou.
+  // O veredito sai daqui e não do navegador: o cliente só informa os defeitos (do worker ou corrigidos pelo operador).
   evaluate(settings: InspectionSettings, detected: DetectedDefects) {
-    const hasStructureDamage = this.hasStructureDamage(settings, detected);
+    const hasStructureDamage = detected.structureOverride ?? this.hasStructureDamage(settings, detected);
     const rejected =
       (settings.rejectMissingPins && detected.hasMissingPins) ||
       (settings.rejectExtraPins && detected.hasExtraPins) ||

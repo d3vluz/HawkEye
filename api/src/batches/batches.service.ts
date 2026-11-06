@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { CreateBatchDto, CaptureDto } from './dto/create-batch.dto';
@@ -51,6 +52,7 @@ export class BatchesService {
       hasDamagedPins: c.has_damaged_pins,
       hasWrongColorPins: c.has_wrong_color_pins,
       hasShaftDefects: c.has_shaft_defects,
+      structureOverride: c.structure_override,
     })]));
 
     const timestamp = this.extractTimestamp(dto);
@@ -98,6 +100,7 @@ export class BatchesService {
           hasWrongColorPins: capture.has_wrong_color_pins,
           hasStructureDamage: verdict.hasStructureDamage,
           hasShaftDefects: capture.has_shaft_defects,
+          corrections: capture.corrections?.length ? (capture.corrections as unknown as Prisma.InputJsonValue) : undefined,
         },
       });
 
@@ -236,6 +239,7 @@ export class BatchesService {
         hasWrongColorPins: c.hasWrongColorPins,
         hasStructureDamage: c.hasStructureDamage,
         hasShaftDefects: c.hasShaftDefects,
+        corrections: c.corrections,
       })),
     };
   }

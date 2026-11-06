@@ -1,5 +1,13 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsBoolean, IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator';
+import { IsArray, IsBoolean, IsIn, IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator';
+
+export const DEFECT_KEYS = ['missing', 'extra', 'wrongColor', 'damaged', 'shaft', 'structure'] as const;
+
+export class CorrectionDto {
+  @IsIn(DEFECT_KEYS) defect: (typeof DEFECT_KEYS)[number];
+  @IsBoolean() detected: boolean;
+  @IsBoolean() corrected: boolean;
+}
 
 export class CompartmentDto {
   @IsNumber() grid_row: number;
@@ -33,6 +41,9 @@ export class CaptureDto {
   @IsBoolean() has_wrong_color_pins: boolean;
   @IsBoolean() has_structure_damage: boolean;
   @IsBoolean() has_shaft_defects: boolean;
+  // Decisão do operador sobre a estrutura; ausente = vale o cálculo pela grade.
+  @IsOptional() @IsBoolean() structure_override?: boolean;
+  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => CorrectionDto) corrections?: CorrectionDto[];
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => CompartmentDto) compartments?: CompartmentDto[];
 }
 
