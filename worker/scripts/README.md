@@ -21,9 +21,6 @@ python scripts/run_local.py caminho/para/imagem.png
 # Pasta de saída customizada
 python scripts/run_local.py imagem.png --output ./minha-saida
 
-# Com máscara de borda explícita
-python scripts/run_local.py imagem.png --mask src/border_mask.png
-
 # Apenas steps específicos
 python scripts/run_local.py imagem.png --steps areas pins
 ```
@@ -37,6 +34,18 @@ python scripts/run_local.py imagem.png --steps areas pins
 | `<nome>_boxes.png` | Bounding boxes por compartimento |
 | `<nome>_shafts.png` | Análise de hastes |
 | `<nome>_summary.json` | Contagens e classificações em JSON |
+
+## evaluate.py
+
+Roda o pipeline em todas as imagens de um dataset organizado em uma pasta por
+classe (`Estado_OK`, `Ausencia_de_Pins`, `Deformidade_Hastes` etc.) e compara as
+flags de defeito com a classe esperada.
+
+```bash
+python scripts/evaluate.py caminho/para/dataset-classificado --workers 8
+python scripts/evaluate.py caminho/para/dataset-classificado --only Estado_OK Deformidade_Hastes
+python scripts/evaluate.py caminho/para/dataset-classificado --limit-ok 120 --out resultados.json
+```
 
 ## Adicionando um novo step
 

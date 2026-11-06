@@ -5,7 +5,6 @@ Não precisa de Docker, MinIO ou frontend.
 Uso:
     python scripts/run_local.py <imagem>
     python scripts/run_local.py <imagem> --output ./saida
-    python scripts/run_local.py <imagem> --mask caminho/mascara.png
     python scripts/run_local.py <imagem> --steps areas pins
 
 Saída padrão: worker/scripts/output/
@@ -20,14 +19,13 @@ import cv2
 # Permite importar de worker/src/ sem instalar o pacote
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from pipeline import PIPELINE_STEPS, PipelineContext, run_pipeline
+from pipeline import PIPELINE_STEPS, PipelineContext
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="HawkEye — pipeline local")
     parser.add_argument("image", help="Caminho para a imagem de entrada")
     parser.add_argument("--output", default=str(Path(__file__).parent / "output"), help="Pasta de saída")
-    parser.add_argument("--mask", default=None, help="Caminho para a máscara de borda (opcional)")
     parser.add_argument(
         "--steps",
         nargs="+",
@@ -51,12 +49,6 @@ def main():
         print(f"Erro: não foi possível carregar a imagem — {image_path}")
         sys.exit(1)
 
-    border_mask = None
-    if args.mask:
-        border_mask = cv2.imread(args.mask)
-        if border_mask is None:
-            print(f"Aviso: máscara não carregada — {args.mask}")
-
     # Filtra steps se --steps foi passado
     if args.steps:
         step_names = {f"_step_{name}" for name in args.steps}
@@ -68,7 +60,7 @@ def main():
     print(f"Steps  : {[s.__name__.removeprefix('_step_') for s in steps]}")
     print(f"Saída  : {args.output}\n")
 
-    ctx = PipelineContext(original=original, border_mask=border_mask)
+    ctx = PipelineContext(original=original)
     for step in steps:
         name = step.__name__.removeprefix("_step_")
         print(f"  → {name}...", end=" ", flush=True)
@@ -94,6 +86,8 @@ def main():
 
     summary = {
         "areas_count": ctx.areas_count,
+        "grid": [ctx.grid.rows, ctx.grid.cols],
+        "missing_dividers": ctx.grid.missing_segments,
         "pins_count": ctx.pins_count,
         "boxes_info": ctx.boxes_info,
         "pin_classification": ctx.pin_classification,

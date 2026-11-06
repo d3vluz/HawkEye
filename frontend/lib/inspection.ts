@@ -25,11 +25,12 @@ export function detectedDefects(result: WorkerResult) {
 export function evaluateCapture(settings: InspectionSettings, result: WorkerResult) {
   const flags = detectedDefects(result)
   const { expectedRows, expectedCols } = settings
+  const hasExpected = expectedRows !== null && expectedCols !== null
   const hasStructureDamage =
-    expectedRows !== null && expectedCols !== null &&
-    (result.grid_rows === undefined || result.grid_cols === undefined
-      ? result.areas_count !== expectedRows * expectedCols
-      : result.grid_rows !== expectedRows || result.grid_cols !== expectedCols)
+    result.grid_rows === undefined || result.grid_cols === undefined
+      ? hasExpected && result.areas_count !== expectedRows * expectedCols
+      : result.areas_count < result.grid_rows * result.grid_cols ||
+        (hasExpected && (result.grid_rows !== expectedRows || result.grid_cols !== expectedCols))
 
   const rejected =
     (settings.rejectMissingPins && flags.hasMissingPins) ||

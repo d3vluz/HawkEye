@@ -1,5 +1,3 @@
-import os
-import cv2
 from typing import List
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,9 +9,6 @@ from pipeline import run_pipeline
 
 app = FastAPI(title="HawkEye Worker", version="1.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
-
-_border_mask = cv2.imread(config.BORDER_MASK_PATH) if os.path.exists(config.BORDER_MASK_PATH) else None
-
 
 class ImageInput(BaseModel):
     filename: str
@@ -31,7 +26,7 @@ def process(req: ProcessRequest):
     results = []
     for img in req.images:
         original = storage.download_image(img.storage_path)
-        ctx = run_pipeline(original, border_mask=_border_mask)
+        ctx = run_pipeline(original)
 
         areas_key = storage.upload_processed_image(ctx.areas_img, img.timestamp, img.sha256, "areas")
         pins_key = storage.upload_processed_image(ctx.pins_img, img.timestamp, img.sha256, "pins")
@@ -48,8 +43,9 @@ def process(req: ProcessRequest):
             "boxes_url": storage.get_public_url(boxes_key),
             "shafts_url": storage.get_public_url(shafts_key),
             "areas_count": ctx.areas_count,
-            "grid_rows": max(len(ctx.y_positions) - 1, 0),
-            "grid_cols": max(len(ctx.x_positions) - 1, 0),
+            "grid_rows": ctx.grid.rows,
+            "grid_cols": ctx.grid.cols,
+            "missing_dividers": ctx.grid.missing_segments,
             "pins_count": ctx.pins_count,
             "boxes_info": ctx.boxes_info,
             "pin_classification": ctx.pin_classification,

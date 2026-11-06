@@ -55,10 +55,13 @@ export class InspectionSettingsService {
 
   private hasStructureDamage(settings: InspectionSettings, detected: DetectedDefects) {
     const { expectedRows, expectedCols } = settings;
-    if (expectedRows === null || expectedCols === null) return false;
-    if (detected.gridRows === undefined || detected.gridCols === undefined) {
-      return detected.areasDetected !== expectedRows * expectedCols;
+    const { gridRows, gridCols, areasDetected } = detected;
+    if (gridRows === undefined || gridCols === undefined) {
+      return expectedRows !== null && expectedCols !== null && areasDetected !== expectedRows * expectedCols;
     }
-    return detected.gridRows !== expectedRows || detected.gridCols !== expectedCols;
+    // Divisória ausente une compartimentos: a grade continua inteira, mas sobram menos áreas.
+    const mergedCompartments = areasDetected < gridRows * gridCols;
+    const wrongGrid = expectedRows !== null && expectedCols !== null && (gridRows !== expectedRows || gridCols !== expectedCols);
+    return mergedCompartments || wrongGrid;
   }
 }

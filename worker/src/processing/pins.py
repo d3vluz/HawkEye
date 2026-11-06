@@ -1,227 +1,193 @@
-"""
-Processamento de pins na imagem.
-Detecta, classifica e conta pins por cor e condição.
-"""
+"""Detecção e classificação dos pinos: cor e integridade do corpo."""
+
+from dataclasses import dataclass
 
 import cv2
 import numpy as np
-from typing import Tuple, List, Dict, Any
+
+# Qualquer objeto saturado sobre o fundo escuro é candidato a pino, de qualquer cor;
+# o pino verde-escuro tem brilho próximo ao do fundo e só se separa pela saturação.
+CHROMA_SATURATION = 90
+CHROMA_VALUE = 30
+YELLOW_HUE = (9, 35)
+RED_HUE_MAX = 8
+RED_HUE_WRAP = 170
+RED_SATURATION = 120
+RED_VALUE = 60
+RED_MIN_PIXELS = 25
+OTHER_COLOR_FRACTION = 0.4
+
+# Reflexos amarelados na parede transparente têm cerca de 10% da área de um pino.
+MIN_RELATIVE_AREA = 0.3
+MERGED_RELATIVE_AREA = 1.6
+DAMAGED_RELATIVE_AREA = 0.8
+DAMAGED_RELATIVE_LENGTH = 0.88
+
+# Referência medida no dataset, usada quando há poucos pinos para tirar a mediana da imagem.
+REFERENCE_AREA = 5280.0
+REFERENCE_LENGTH = 121.0
+MIN_PINS_FOR_MEDIAN = 5
+GEOMETRY_KERNEL = 11
+
+COLOR_VALID = (0, 255, 0)
+COLOR_INVALID = (0, 165, 255)
+COLOR_CRITICAL = (0, 0, 255)
 
 
-# === Constantes de cor (HSV) ===
+@dataclass
+class Pin:
+    contour: np.ndarray
+    area: float
+    length: float
+    centroid: np.ndarray
+    axis: np.ndarray
+    extent: tuple[float, float]
+    red_pixels: int = 0
+    other_fraction: float = 0.0
+    merged: bool = False
+    wrong_color: bool = False
+    damaged: bool = False
 
-# Pins padrão (Amarelos)
-LOWER_YELLOW = np.array([10, 165, 100])
-UPPER_YELLOW = np.array([30, 255, 255])
-
-# Pins fora do padrão
-LOWER_BLUE = np.array([110, 60, 40])
-UPPER_BLUE = np.array([125, 255, 170])
-
-LOWER_RED = np.array([0, 151, 82])
-UPPER_RED = np.array([15, 255, 255])
-
-LOWER_GREEN = np.array([70, 0, 0])
-UPPER_GREEN = np.array([100, 255, 255])
-
-# === Cores de visualização (RGB) ===
-
-COLOR_VALID = (0, 255, 0)       # Verde: Válido (Perfeito)
-COLOR_INVALID = (255, 165, 0)   # Laranja: Inválido (Erro Único)
-COLOR_CRITICAL = (255, 0, 0)    # Vermelho: Crítico (Erro Duplo)
+    @property
+    def box(self) -> tuple[int, int, int, int]:
+        x, y, w, h = cv2.boundingRect(self.contour)
+        return int(x), int(y), int(w), int(h)
 
 
-def _apply_watershed(
-    image_rgb: np.ndarray,
-    mask_input: np.ndarray,
-    min_area: int = 500,
-    threshold_factor: float = 0.15
-) -> List[np.ndarray]:
-    """
-    Aplica o algoritmo Watershed para separar objetos conectados.
-    
-    Args:
-        image_rgb: Imagem RGB de entrada
-        mask_input: Máscara binária dos objetos
-        min_area: Área mínima para considerar um contorno válido
-        threshold_factor: Fator para threshold da transformada de distância
-    
-    Returns:
-        Lista de contornos que passaram pelo filtro de área mínima
-    """
-    kernel = np.ones((3, 3), np.uint8)
-    opening = cv2.morphologyEx(mask_input, cv2.MORPH_OPEN, kernel, iterations=1)
-    sure_bg = cv2.dilate(opening, kernel, iterations=2)
-    
-    dist_transform = cv2.distanceTransform(opening, cv2.DIST_L2, 5)
-    _, sure_fg = cv2.threshold(
-        dist_transform, 
-        threshold_factor * dist_transform.max(), 
-        255, 
-        0
+def _color_masks(hsv: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    h, s, v = cv2.split(hsv)
+    chroma = ((s >= CHROMA_SATURATION) & (v >= CHROMA_VALUE)).astype(np.uint8) * 255
+    chroma = cv2.morphologyEx(chroma, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)))
+    chroma = cv2.morphologyEx(chroma, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7)))
+    red = (((h <= RED_HUE_MAX) | (h >= RED_HUE_WRAP)) & (s >= RED_SATURATION) & (v >= RED_VALUE)).astype(np.uint8)
+    red = cv2.morphologyEx(red, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    yellow = (h >= YELLOW_HUE[0]) & (h <= YELLOW_HUE[1])
+    return chroma, red, yellow
+
+
+def _geometry(points: np.ndarray) -> tuple[np.ndarray, np.ndarray, tuple[float, float]]:
+    centroid = points.mean(axis=0)
+    _, _, vt = np.linalg.svd(points - centroid, full_matrices=False)
+    axis = vt[0]
+    proj = (points - centroid) @ axis
+    return centroid, axis, (float(proj.min()), float(proj.max()))
+
+
+def _make_pin(mask: np.ndarray, red: np.ndarray, yellow: np.ndarray) -> Pin | None:
+    # Reflexos do pino no plástico vizinho grudam no corpo como apêndices finos e entortam o eixo.
+    body = cv2.morphologyEx(mask, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (GEOMETRY_KERNEL,) * 2))
+    if cv2.countNonZero(body) < cv2.countNonZero(mask) * 0.5:
+        body = mask
+    contours, _ = cv2.findContours(body, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    if not contours:
+        return None
+    contour = max(contours, key=cv2.contourArea)
+    ys, xs = np.nonzero(body)
+    points = np.column_stack([xs, ys]).astype(np.float64)
+    centroid, axis, extent = _geometry(points)
+    (_, _), (w, h), _ = cv2.minAreaRect(contour)
+    inside = mask > 0
+    red_pixels = int(red[cv2.dilate(mask, np.ones((5, 5), np.uint8)) > 0].sum())
+    not_yellow = ~yellow[inside]
+    not_red = red[inside] == 0
+    other_fraction = float((not_yellow & not_red).mean()) if inside.any() else 0.0
+    return Pin(
+        contour=contour, area=float(inside.sum()), length=float(max(w, h)),
+        centroid=centroid, axis=axis, extent=extent,
+        red_pixels=red_pixels, other_fraction=other_fraction,
     )
-    sure_fg = np.uint8(sure_fg)
-    
-    unknown = cv2.subtract(sure_bg, sure_fg)
-    _, markers = cv2.connectedComponents(sure_fg)
-    markers = markers + 1
-    markers[unknown == 255] = 0
-    
-    image_temp = image_rgb.copy()
-    markers = cv2.watershed(image_temp, markers)
-    
-    final_contours = []
-    for label in np.unique(markers):
-        if label <= 1:
+
+
+def _split_merged(mask: np.ndarray, count: int) -> list[np.ndarray]:
+    ys, xs = np.nonzero(mask)
+    data = np.column_stack([xs, ys]).astype(np.float32)
+    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 50, 0.5)
+    _, labels, _ = cv2.kmeans(data, count, None, criteria, 3, cv2.KMEANS_PP_CENTERS)
+    parts = []
+    for k in range(count):
+        part = np.zeros_like(mask)
+        sel = labels.ravel() == k
+        part[ys[sel], xs[sel]] = 255
+        parts.append(part)
+    return parts
+
+
+def detect_pins(image: np.ndarray) -> list[Pin]:
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    chroma, red, yellow = _color_masks(hsv)
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(chroma)
+    areas = stats[1:, cv2.CC_STAT_AREA].astype(float)
+    big = areas[areas > REFERENCE_AREA * MIN_RELATIVE_AREA]
+    typical_area = float(np.median(big)) if len(big) >= MIN_PINS_FOR_MEDIAN else REFERENCE_AREA
+
+    pins: list[Pin] = []
+    for i in range(1, n):
+        area = stats[i, cv2.CC_STAT_AREA]
+        if area < typical_area * MIN_RELATIVE_AREA:
             continue
-        
-        object_mask = np.zeros(mask_input.shape, dtype="uint8")
-        object_mask[markers == label] = 255
-        contours, _ = cv2.findContours(
-            object_mask, 
-            cv2.RETR_EXTERNAL, 
-            cv2.CHAIN_APPROX_SIMPLE
-        )
-        
-        for contour in contours:
-            if cv2.contourArea(contour) > min_area:
-                final_contours.append(contour)
-    
-    return final_contours
+        mask = (labels == i).astype(np.uint8) * 255
+        count = int(round(area / typical_area))
+        if area >= typical_area * MERGED_RELATIVE_AREA and count >= 2:
+            for part in _split_merged(mask, count):
+                pin = _make_pin(part, red, yellow)
+                if pin:
+                    pin.merged = True
+                    pins.append(pin)
+            continue
+        pin = _make_pin(mask, red, yellow)
+        if pin:
+            pins.append(pin)
+
+    _classify(pins)
+    return pins
 
 
-def process_pins(
-    image: np.ndarray
-) -> Tuple[np.ndarray, int, List[Tuple[int, int, int, int]], Dict[str, Any]]:
-    """
-    Processa pins com detecção de cores erradas e danos.
-    
-    Classifica pins em 4 categorias:
-    - OK: Amarelos perfeitos
-    - Cor errada: Azul/Vermelho/Verde, mas não danificados
-    - Danificados: Amarelos com área abaixo do limiar
-    - Defeito duplo: Cor errada E danificados
-    
-    Para visualização, agrupa em 3 cores:
-    - Verde (válido): Pins perfeitos
-    - Laranja (inválido): Erro único (cor OU dano)
-    - Vermelho (crítico): Erro duplo (cor E dano)
-    
-    Args:
-        image: Imagem BGR de entrada
-    
-    Returns:
-        Tuple contendo:
-        - Imagem com contornos desenhados
-        - Contagem total de pins
-        - Lista de bounding boxes (x, y, w, h)
-        - Dicionário com classificação detalhada
-    """
-    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-    
-    # --- Criar máscaras HSV ---
-    
-    mask_yellow = cv2.inRange(hsv_image, LOWER_YELLOW, UPPER_YELLOW)
-    
-    mask_blue = cv2.inRange(hsv_image, LOWER_BLUE, UPPER_BLUE)
-    mask_red = cv2.inRange(hsv_image, LOWER_RED, UPPER_RED)
-    mask_green = cv2.inRange(hsv_image, LOWER_GREEN, UPPER_GREEN)
-    mask_out_of_standard = mask_blue | mask_red | mask_green
-    
-    # --- Aplicar Watershed ---
-    
-    raw_out_contours = _apply_watershed(
-        image_rgb, mask_out_of_standard, min_area=300, threshold_factor=0.15
-    )
-    raw_yellow_contours = _apply_watershed(
-        image_rgb, mask_yellow, min_area=300, threshold_factor=0.20
-    )
-    
-    # --- Calcular média e limiar de dano ---
-    
-    all_detected_contours = raw_yellow_contours + raw_out_contours
-    avg_area = 0.0
-    damage_threshold = 0.0
-    
-    if len(all_detected_contours) > 0:
-        all_areas = [cv2.contourArea(cnt) for cnt in all_detected_contours]
-        avg_area = float(np.mean(all_areas))
-        damage_threshold = avg_area * (2/3)
-    
-    # --- Classificação detalhada (4 categorias) ---
-    
-    pins_ok = []              # Amarelos perfeitos
-    pins_wrong_color = []     # Cor errada, mas não danificados
-    pins_damaged_yellow = []  # Amarelos danificados
-    pins_double_defect = []   # Cor errada E danificados
-    
-    # Analisar amarelos
-    for cnt in raw_yellow_contours:
-        area = cv2.contourArea(cnt)
-        if area < damage_threshold:
-            pins_damaged_yellow.append(cnt)
-        else:
-            pins_ok.append(cnt)
-    
-    # Analisar cores erradas
-    for cnt in raw_out_contours:
-        area = cv2.contourArea(cnt)
-        if area < damage_threshold:
-            pins_double_defect.append(cnt)
-        else:
-            pins_wrong_color.append(cnt)
-    
-    # --- Agrupamento para visualização (3 cores) ---
-    
-    # Verde: Válido (Pino Perfeito)
-    final_green = pins_ok
-    count_green = len(final_green)
-    
-    # Laranja: Inválido (Apenas um erro)
-    final_orange = pins_wrong_color + pins_damaged_yellow
-    count_orange = len(final_orange)
-    
-    # Vermelho: Crítico (Defeito Duplo)
-    final_red = pins_double_defect
-    count_red = len(final_red)
-    
-    total = count_green + count_orange + count_red
-    
-    # --- Desenhar resultado ---
-    
-    image_result = image_rgb.copy()
-    
-    cv2.drawContours(image_result, final_green, -1, COLOR_VALID, 3)
-    cv2.drawContours(image_result, final_orange, -1, COLOR_INVALID, 3)
-    cv2.drawContours(image_result, final_red, -1, COLOR_CRITICAL, 3)
-    
-    # Converter de volta para BGR
-    image_result_bgr = cv2.cvtColor(image_result, cv2.COLOR_RGB2BGR)
-    
-    # --- Extrair bounding boxes ---
-    
-    pin_boxes = []
-    all_contours = final_green + final_orange + final_red
-    for contour in all_contours:
-        x, y, w, h = cv2.boundingRect(contour)
-        pin_boxes.append((x, y, w, h))
-    
-    # --- Classificação para retorno ---
-    
-    pin_classification = {
-        "total_pins": total,
-        "valid_pins": count_green,
-        "invalid_pins": count_orange,
-        "critical_pins": count_red,
-        "damaged_threshold": round(damage_threshold, 2),
-        "average_area": round(avg_area, 2),
+def _classify(pins: list[Pin]) -> None:
+    singles = [p for p in pins if not p.merged]
+    enough = len(singles) >= MIN_PINS_FOR_MEDIAN
+    typical_area = float(np.median([p.area for p in singles])) if enough else REFERENCE_AREA
+    typical_length = float(np.median([p.length for p in singles])) if enough else REFERENCE_LENGTH
+    for pin in pins:
+        pin.wrong_color = pin.red_pixels >= RED_MIN_PIXELS or pin.other_fraction >= OTHER_COLOR_FRACTION
+        if not pin.merged:
+            pin.damaged = (
+                pin.area < typical_area * DAMAGED_RELATIVE_AREA
+                or pin.length < typical_length * DAMAGED_RELATIVE_LENGTH
+            )
+
+
+def summarize_pins(pins: list[Pin]) -> dict:
+    ok = sum(1 for p in pins if not p.wrong_color and not p.damaged)
+    wrong = sum(1 for p in pins if p.wrong_color and not p.damaged)
+    damaged = sum(1 for p in pins if p.damaged and not p.wrong_color)
+    double = sum(1 for p in pins if p.damaged and p.wrong_color)
+    singles = [p.area for p in pins if not p.merged]
+    typical = float(np.median(singles)) if singles else 0.0
+    return {
+        "total_pins": len(pins),
+        "valid_pins": ok,
+        "invalid_pins": wrong + damaged,
+        "critical_pins": double,
+        "damaged_threshold": round(typical * DAMAGED_RELATIVE_AREA, 2),
+        "average_area": round(typical, 2),
         "details": {
-            "pins_ok": count_green,
-            "pins_wrong_color": len(pins_wrong_color),
-            "pins_damaged_yellow": len(pins_damaged_yellow),
-            "pins_double_defect": len(pins_double_defect)
-        }
+            "pins_ok": ok,
+            "pins_wrong_color": wrong,
+            "pins_damaged_yellow": damaged,
+            "pins_double_defect": double,
+        },
     }
-    
-    return image_result_bgr, total, pin_boxes, pin_classification
+
+
+def draw_pins(image: np.ndarray, pins: list[Pin]) -> np.ndarray:
+    result = image.copy()
+    for pin in pins:
+        defects = int(pin.wrong_color) + int(pin.damaged)
+        color = (COLOR_VALID, COLOR_INVALID, COLOR_CRITICAL)[defects]
+        cv2.drawContours(result, [pin.contour], -1, color, 3)
+    return result
+
+
+def process_pins(image: np.ndarray) -> tuple[np.ndarray, list[Pin], dict]:
+    pins = detect_pins(image)
+    return draw_pins(image, pins), pins, summarize_pins(pins)
