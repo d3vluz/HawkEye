@@ -1,509 +1,314 @@
 "use client"
 
-import { Fragment, useState, useEffect, useCallback } from "react"
-import { useRouter } from "next/navigation"
-import Image from "next/image"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import Link from "next/link"
+import { AlertTriangle, ArrowLeft, CheckCircle2, CircleAlert, Download, Loader2, XCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { 
-    Select, 
-    SelectContent, 
-    SelectItem, 
-    SelectTrigger, 
-    SelectValue 
-} from "@/components/ui/select"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import { 
-    ArrowLeft, 
-    Download, 
-    Image as ImageIcon,
-    CheckCircle,
-    XCircle,
-    ChevronRight,
-    BarChart3,
-    Loader2,
-    FileText,
-    AlertTriangle,
-} from "lucide-react"
-import { ResponsiveContainer, BarChart, XAxis, YAxis, CartesianGrid, Tooltip, Bar } from "recharts"
-import { type Batch, type Capture } from "@/lib/api-client"
-
-interface ErrorDistributionItem {
-    name: string
-    count: number
-}
-
-
-
-const CustomErrorTooltip = ({ active, payload }: { active?: boolean; payload?: { payload: { name: string; count: number } }[] }) => {
-    if (active && payload && payload.length) {
-        const data = payload[0].payload
-        return (
-            <div className="p-3 bg-popover border border-border rounded-lg shadow-lg text-popover-foreground">
-                <p className="text-sm font-semibold mb-1">{data.name}</p>
-                <p className="text-lg font-bold text-primary-emphasis">{data.count} ocorrências</p>
-            </div>
-        )
-    }
-    return null
-}
+import { PageHeader, type Crumb } from "@/components/page-header"
+import { CaptureList, StatusDot, type ListFilter } from "@/components/review/capture-list"
+import { CaptureViewer } from "@/components/review/capture-viewer"
+import { DefectSummary } from "@/components/review/lot-overview"
+import { getInspectionSettings, type Batch, type Capture } from "@/lib/api-client"
+import { CHECKS, type DefectKey, type Flags, type ProcessedImage, type ViewKey } from "@/lib/review"
+import { cn } from "@/lib/utils"
 
 interface BatchDetailProps {
-    id: string
-    load: (id: string) => Promise<{ batch: Batch; captures: Capture[] }>
-    breadcrumb: string[]
+  id: string
+  load: (id: string) => Promise<{ batch: Batch; captures: Capture[] }>
+  crumbs: Crumb[]
 }
 
-export function BatchDetail({ id, load, breadcrumb }: BatchDetailProps) {
-    const router = useRouter()
-    
-    const [batch, setBatch] = useState<Batch | null>(null)
-    const [captures, setCaptures] = useState<Capture[]>([])
-    const [loading, setLoading] = useState(true)
-    const [error, setError] = useState<string | null>(null)
-    const [selectedCapture, setSelectedCapture] = useState<Capture | null>(null)
-    const [processingType, setProcessingType] = useState<string>("original")
-    const [downloading, setDownloading] = useState(false)
+const CORRECTION_TEXT = (detected: boolean, corrected: boolean) =>
+  `Corrigido na revisão: o sistema indicou ${detected ? "defeito" : "OK"} e o operador marcou ${corrected ? "defeito" : "OK"}.`
 
-    const loadBatchDetails = useCallback(async () => {
-        try {
-            setLoading(true)
-            const data = await load(id)
-            setBatch(data.batch)
-            setCaptures(data.captures)
-            setError(null)
-        } catch (err) {
-            console.error('Erro ao carregar detalhes:', err)
-            setError(err instanceof Error ? err.message : "Erro ao carregar detalhes")
-        } finally {
-            setLoading(false)
-        }
-    }, [id, load])
+function flagsOf(c: Capture): Flags {
+  return {
+    missing: Boolean(c.hasMissingPins),
+    extra: Boolean(c.hasExtraPins),
+    wrongColor: Boolean(c.hasWrongColorPins),
+    damaged: Boolean(c.hasDamagedPins),
+    shaft: Boolean(c.hasShaftDefects),
+    structure: Boolean(c.hasStructureDamage),
+  }
+}
 
-    useEffect(() => {
-        loadBatchDetails()
-    }, [loadBatchDetails])
+// O visualizador e a lista da revisão esperam o formato do worker; a captura salva só muda os nomes.
+function asImage(c: Capture): ProcessedImage {
+  const original = c.original_uri
+  return {
+    filename: c.filename,
+    sha256: c.sha256 ?? c.id,
+    original_url: original,
+    areas_url: c.processed_areas_uri || original,
+    pins_url: c.processed_pins_uri || original,
+    boxes_url: c.processed_uri || original,
+    shafts_url: c.processed_shaft_uri || original,
+  } as ProcessedImage
+}
 
-    useEffect(() => {
-        if (captures.length > 0 && !selectedCapture) {
-            setSelectedCapture(captures[0])
-        }
-    }, [captures, selectedCapture])
+function formatDate(value: string) {
+  return new Date(value).toLocaleString("pt-BR", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })
+}
 
-    const handleDownloadImages = async () => {
-        if (!batch || captures.length === 0) return
-        
-        setDownloading(true)
-        try {
-            const JSZip = (await import('jszip')).default
-            const zip = new JSZip()
+function CaptureFindings({ capture, flags, view, onView }: {
+  capture: Capture
+  flags: Flags
+  view: ViewKey
+  onView: (v: ViewKey) => void
+}) {
+  const failing = CHECKS.filter((c) => flags[c.key])
+  const corrections = new Map((capture.corrections ?? []).map((c) => [c.defect, c]))
 
-            for (const capture of captures) {
-                const captureFolder = zip.folder(capture.sha256 || capture.id)
-                if (!captureFolder) continue
-                
-                const images = [
-                    { url: capture.original_uri, name: 'original' },
-                    { url: capture.processed_uri, name: 'caixas' },
-                    { url: capture.processed_areas_uri, name: 'areas' },
-                    { url: capture.processed_pins_uri, name: 'pins' },
-                    { url: capture.processed_shaft_uri, name: 'hastes' },
-                ]
-                
-                for (const img of images) {
-                    if (img.url) {
-                        try {
-                            const response = await fetch(img.url)
-                            if (response.ok) {
-                                const blob = await response.blob()
-                                captureFolder.file(`${img.name}.png`, blob)
-                            }
-                        } catch (err) {
-                            console.warn(`Erro ao baixar ${img.name}:`, err)
-                        }
-                    }
-                }
-            }
-            
-            const folderName = batch.name.replace(/\s+/g, '_')
-            const content = await zip.generateAsync({ type: 'blob' })
-            const url = URL.createObjectURL(content)
-            const a = document.createElement('a')
-            a.href = url
-            a.download = `${folderName}.zip`
-            document.body.appendChild(a)
-            a.click()
-            document.body.removeChild(a)
-            URL.revokeObjectURL(url)
-            
-        } catch (err) {
-            console.error('Erro ao baixar imagens:', err)
-            alert('Erro ao baixar imagens. Tente novamente.')
-        } finally {
-            setDownloading(false)
-        }
-    }
-
-    const formatDate = (dateString: string) => {
-        return new Date(dateString).toLocaleString('pt-BR', {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-        })
-    }
-
-    const calculateErrorDistribution = (): ErrorDistributionItem[] => {
-        const defectCounts: Record<string, { name: string; count: number }> = {
-            "Pino Ausente": { name: "Pino Ausente", count: 0 },
-            "Pino Extra": { name: "Pino Extra", count: 0 },
-            "Pino Danificado": { name: "Pino Danificado", count: 0 },
-            "Cor Incorreta": { name: "Cor Incorreta", count: 0 },
-            "Dano Estrutural": { name: "Dano Estrutural", count: 0 },
-            "Defeito na Haste": { name: "Defeito na Haste", count: 0 }
-        }
-
-        // We use the boolean flags from the new Prisma DB
-        captures.forEach((capture) => {
-            if (capture.hasMissingPins) defectCounts["Pino Ausente"].count++
-            if (capture.hasExtraPins) defectCounts["Pino Extra"].count++
-            if (capture.hasDamagedPins) defectCounts["Pino Danificado"].count++
-            if (capture.hasWrongColorPins) defectCounts["Cor Incorreta"].count++
-            if (capture.hasStructureDamage) defectCounts["Dano Estrutural"].count++
-            if (capture.hasShaftDefects) defectCounts["Defeito na Haste"].count++
-        })
-
-        return Object.values(defectCounts).filter(d => d.count > 0).sort((a, b) => b.count - a.count)
-    }
-
-    const getCurrentImageUrl = () => {
-        if (!selectedCapture) return null
-        
-        switch (processingType) {
-            case "original":
-                return selectedCapture.original_uri
-            case "analise_pins":
-                return selectedCapture.processed_pins_uri
-            case "analise_caixa":
-                return selectedCapture.processed_uri
-            case "analise_areas":
-                return selectedCapture.processed_areas_uri
-            case "analise_hastes":
-                return selectedCapture.processed_shaft_uri
-            default:
-                return selectedCapture.original_uri
-        }
-    }
-
-    if (loading) {
-        return (
-            <div className="min-h-screen flex items-center justify-center">
-                <div className="text-center">
-                    <Loader2 className="h-12 w-12 animate-spin text-signal mx-auto mb-4" />
-                    <p className="text-muted-foreground font-medium">Carregando detalhes do lote...</p>
-                </div>
-            </div>
-        )
-    }
-
-    if (error || !batch) {
-        return (
-            <div className="min-h-screen flex items-center justify-center">
-                <div className="text-center">
-                    <AlertTriangle className="h-12 w-12 text-danger-emphasis mx-auto mb-4" />
-                    <p className="text-foreground font-medium mb-2">Erro ao carregar lote</p>
-                    <p className="text-muted-foreground text-sm">{error}</p>
-                    <Button onClick={() => router.back()} className="mt-4">
-                        <ArrowLeft className="h-4 w-4 mr-2" />
-                        Voltar
-                    </Button>
-                </div>
-            </div>
-        )
-    }
-
-    const errorDistribution = calculateErrorDistribution()
-    const totalDefectTypes = errorDistribution.length
-    const averageDefectsPerCapture = batch.total_captures > 0
-        ? batch.total_defects / batch.total_captures
-        : 0
-
-    return (
-        <div className="p-8">
-            {/* Header */}
-            <div className="mb-8">
-                <Button
-                    variant="ghost"
-                    onClick={() => router.back()}
-                    className="mb-4"
-                >
-                    <ArrowLeft className="h-4 w-4 mr-2" />
-                    Voltar
-                </Button>
-
-                <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                        <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground mb-3 tracking-wider">
-                            {breadcrumb.map((item) => (
-                                <Fragment key={item}>
-                                    <span>{item}</span>
-                                    <ChevronRight className="h-3 w-3 text-muted-foreground" />
-                                </Fragment>
-                            ))}
-                            <span className="text-foreground">DETALHES</span>
-                        </div>
-
-                        {/* Título */}
-                        <div className="flex items-center gap-4 mb-3">
-                            <h1 className="text-3xl font-bold text-foreground">{batch.name}</h1>
-                            {/* @TODO: revisar a necessidade de um badge */}
-                        </div>
-
-                        {/* Descrição */}
-                        {batch.description && (
-                            <p className="text-muted-foreground text-base my-3 max-w-2xl">
-                                {batch.description}
-                            </p>
-                        )}
-
-                        {/* Data de criação */}
-                        <p className="text-muted-foreground text-xs mt-3">
-                            Processado em {formatDate(batch.created_at)}
-                        </p>
-                        {batch.author && (
-                            <p className="text-muted-foreground text-xs mt-1">
-                                Coletado por {batch.author.name ? `${batch.author.name} · Matrícula ` : "matrícula "}
-                                {batch.author.matricula}
-                            </p>
-                        )}
-                        {batch.unit && (
-                            <p className="text-muted-foreground text-xs mt-1">Linha {batch.unit.name}</p>
-                        )}
-                        <p className="text-muted-foreground text-[10px] mt-2">
-                            {batch.id}
-                        </p>
-                    </div>
-
-                    {/* Ações */}
-                    <div className="flex gap-3">
-                        <Button
-                            onClick={handleDownloadImages}
-                            disabled={downloading}
-                            className="bg-primary hover:bg-primary/90"
-                        >
-                            {downloading ? (
-                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                            ) : (
-                                <Download className="h-4 w-4 mr-2" />
-                            )}
-                            {downloading ? 'Baixando...' : 'Baixar Imagens'}
-                        </Button>
-                    </div>
-                </div>
-            </div>
-
-            {/* Stats Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-                <Card className="border-border">
-                    <CardContent className="p-6">
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <p className="text-sm text-muted-foreground">Capturas Totais</p>
-                                <p className="text-3xl font-bold text-foreground mt-1 tabular-nums">{batch.total_captures}</p>
-                            </div>
-                            <div className="bg-signal/10 p-3 rounded-lg">
-                                <ImageIcon className="h-6 w-6 text-signal" />
-                            </div>
-                        </div>
-                    </CardContent>
-                </Card>
-
-                <Card className="border-border">
-                    <CardContent className="p-6">
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <p className="text-sm text-muted-foreground">Válidas (Conforme)</p>
-                                <p className="text-3xl font-bold text-success-emphasis mt-1 tabular-nums">{batch.valid_captures}</p>
-                            </div>
-                            <div className="bg-success/10 p-3 rounded-lg">
-                                <CheckCircle className="h-6 w-6 text-success-emphasis" />
-                            </div>
-                        </div>
-                    </CardContent>
-                </Card>
-
-                <Card className="border-border">
-                    <CardContent className="p-6">
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <p className="text-sm text-muted-foreground">Inválidas</p>
-                                <p className="text-3xl font-bold text-danger-emphasis mt-1 tabular-nums">{batch.invalid_captures}</p>
-                            </div>
-                            <div className="bg-danger/10 p-3 rounded-lg">
-                                <XCircle className="h-6 w-6 text-danger-emphasis" />
-                            </div>
-                        </div>
-                    </CardContent>
-                </Card>
-
-                <Card className="border-border">
-                    <CardContent className="p-6">
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <p className="text-sm text-muted-foreground">Score de Qualidade</p>
-                                <p className="text-3xl font-bold text-foreground mt-1 tabular-nums">
-                                    {(batch.quality_score || 0).toFixed(1)}%
-                                </p>
-                            </div>
-                            <div className="bg-signal/10 p-3 rounded-lg">
-                                <FileText className="h-6 w-6 text-signal" />
-                            </div>
-                        </div>
-                    </CardContent>
-                </Card>
-            </div>
-
-            {/* Análise de Defeitos */}
-            {batch.total_defects > 0 && (
-                <div className="grid grid-cols-1 gap-6 mb-8">
-                    <Card className="border-border">
-                        <CardHeader>
-                            <CardTitle>Análise de Defeitos e Erros</CardTitle>
-                            <CardDescription>Distribuição de ocorrências de defeitos por tipo.</CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                            {/* Indicadores Chave */}
-                            <div className="grid grid-cols-3 gap-4 mb-6">
-                                <div className="p-4 bg-danger/10 rounded-lg border border-danger/20">
-                                    <p className="text-xs text-danger-emphasis font-medium">Ocorrências Totais</p>
-                                    <p className="text-2xl font-bold text-danger-emphasis">{batch.total_defects}</p>
-                                </div>
-                                <div className="p-4 bg-signal/10 rounded-lg border border-signal/20">
-                                    <p className="text-xs text-signal font-medium">Tipos Distintos de Defeito</p>
-                                    <p className="text-2xl font-bold text-signal">{totalDefectTypes}</p>
-                                </div>
-                                <div className="p-4 bg-muted rounded-lg border border-border">
-                                    <p className="text-xs text-muted-foreground font-medium">Média de Erros por Captura</p>
-                                    <p className="text-2xl font-bold text-foreground">{averageDefectsPerCapture.toFixed(2)}</p>
-                                </div>
-                            </div>
-
-                            {/* Gráfico */}
-                            {errorDistribution.length > 0 && (
-                                <div className="h-96 w-full">
-                                    <h4 className="text-base font-semibold text-foreground mb-3 flex items-center gap-2">
-                                        <BarChart3 className="h-4 w-4 text-muted-foreground" />
-                                        Distribuição de Ocorrências
-                                    </h4>
-                                    <ResponsiveContainer width="100%" height="90%">
-                                        <BarChart
-                                            data={errorDistribution}
-                                            layout="vertical"
-                                            margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-                                        >
-                                            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                                            <XAxis type="number" stroke="var(--muted-foreground)" />
-                                            <YAxis dataKey="name" type="category" stroke="var(--muted-foreground)" width={150} />
-                                            <Tooltip content={<CustomErrorTooltip />} />
-                                            <Bar dataKey="count" fill="var(--chart-1)" radius={[0, 6, 6, 0]} />
-                                        </BarChart>
-                                    </ResponsiveContainer>
-                                </div>
-                            )}
-                        </CardContent>
-                    </Card>
-                </div>
-            )}
-
-            {/* Galeria de Imagens */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Lista de Capturas */}
-                <Card className="lg:col-span-1 border-border">
-                    <CardHeader>
-                        <CardTitle>Galeria de Imagens</CardTitle>
-                        <CardDescription>Imagens processadas neste lote ({batch.total_captures} total)</CardDescription>
-                    </CardHeader>
-                    <CardContent className="flex flex-col gap-4">
-
-                        {/* Seletor de Tipo */}
-                        <div>
-                            <label className="text-sm font-medium text-foreground">Tipo de Visualização</label>
-                            <Select value={processingType} onValueChange={setProcessingType}>
-                                <SelectTrigger className="w-full mt-1">
-                                    <SelectValue placeholder="Selecione o processamento" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="original">Original</SelectItem>
-                                    <SelectItem value="analise_pins">Análise de Pins</SelectItem>
-                                    <SelectItem value="analise_caixa">Análise da Caixa</SelectItem>
-                                    <SelectItem value="analise_areas">Análise das Áreas</SelectItem>
-                                    <SelectItem value="analise_hastes">Análise de Hastes</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
-
-                        {/* Lista de Previews */}
-                        <div className="flex-1">
-                            <h4 className="text-sm font-medium text-foreground mb-2">Todas as Capturas</h4>
-                            <ScrollArea className="h-96 w-full rounded-md border p-2">
-                                <div className="flex flex-col gap-3">
-                                    {captures.map((capture, index) => (
-                                        <button
-                                            key={capture.id}
-                                            className={`w-full p-2 rounded-lg border-2 flex items-center gap-3 text-left transition-all ${selectedCapture?.id === capture.id
-                                                ? 'border-signal bg-signal/10 shadow-md'
-                                                : 'border-transparent hover:bg-muted'
-                                                }`}
-                                            onClick={() => setSelectedCapture(capture)}
-                                        >
-                                            <div className={`flex-shrink-0 w-12 h-12 rounded-md flex items-center justify-center ${capture.is_valid ? 'bg-success/15' : 'bg-danger/15'
-                                                }`}>
-                                                <ImageIcon className={`h-5 w-5 ${capture.is_valid ? 'text-success-emphasis' : 'text-danger-emphasis'
-                                                    }`} />
-                                            </div>
-                                            <div className="flex-1">
-                                                <p className="text-sm font-semibold text-foreground">
-                                                    {capture.filename || `Captura ${index + 1}`}
-                                                </p>
-                                                <p className="text-xs text-muted-foreground">
-                                                    {capture.is_valid
-                                                        ? 'Válida'
-                                                        : `Inválida • ${capture.defects_count || 0} defeitos`
-                                                    }
-                                                    {capture.corrections?.length ? ' • corrigida na revisão' : ''}
-                                                </p>
-                                            </div>
-                                        </button>
-                                    ))}
-                                </div>
-                            </ScrollArea>
-                        </div>
-                    </CardContent>
-                </Card>
-
-                {/* Visualizador de Imagem */}
-                <div className="lg:col-span-2 bg-[var(--graphite-900)] rounded-lg min-h-[600px] relative overflow-hidden">
-                    {selectedCapture && getCurrentImageUrl() ? (
-                        <div className="relative w-full h-full min-h-[600px]">
-                            <Image
-                                src={getCurrentImageUrl() || ''}
-                                alt={`Captura ${selectedCapture.filename}`}
-                                fill
-                                className="object-contain"
-                                priority
-                            />
-                        </div>
-                    ) : (
-                        <div className="absolute inset-0 flex items-center justify-center">
-                            <div className="text-center text-[var(--graphite-200)] p-4">
-                                <ImageIcon className="h-16 w-16 mx-auto mb-4 opacity-50" />
-                                <p className="text-[var(--graphite-200)]">Selecione uma captura para visualizar</p>
-                            </div>
-                        </div>
-                    )}
-                </div>
-            </div>
+  return (
+    <section aria-label="Resultado da captura" className="flex min-h-0 flex-col rounded-xl border border-border bg-card">
+      <div className="border-b border-border p-4">
+        <div className="flex items-center gap-2">
+          {capture.is_valid ? <CheckCircle2 className="size-5 text-success-emphasis" /> : <XCircle className="size-5 text-danger-emphasis" />}
+          <h2 className="text-base font-semibold text-foreground">{capture.is_valid ? "Captura aprovada" : "Captura reprovada"}</h2>
         </div>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {failing.length > 0
+            ? `${capture.is_valid ? "Tolerado pelos critérios" : "Motivo"}: ${failing.map((c) => c.label.toLowerCase()).join(", ")}.`
+            : "Nenhum defeito registrado."}
+        </p>
+      </div>
+      <ul className="min-h-0 flex-1 divide-y divide-border overflow-y-auto px-2 py-1">
+        {CHECKS.map((check) => {
+          const value = flags[check.key]
+          const correction = corrections.get(check.key)
+          return (
+            <li key={check.key} className="py-1">
+              <button
+                onClick={() => onView(check.view)}
+                title="Mostrar a camada correspondente"
+                className={cn("flex w-full items-start gap-2.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-muted/50", view === check.view && "bg-muted/50")}
+              >
+                <span className="mt-0.5">
+                  {value ? <CircleAlert className="size-4 text-danger-emphasis" /> : <CheckCircle2 className="size-4 text-success-emphasis" />}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium text-foreground">{check.label}</span>
+                  <span className="block text-xs leading-relaxed text-muted-foreground">{value ? "Defeito registrado" : check.clear}</span>
+                  {correction && (
+                    <span className="block text-xs leading-relaxed text-primary-emphasis">
+                      {CORRECTION_TEXT(correction.detected, correction.corrected)}
+                    </span>
+                  )}
+                </span>
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+    </section>
+  )
+}
+
+export function BatchDetail({ id, load, crumbs }: BatchDetailProps) {
+  const [batch, setBatch] = useState<Batch | null>(null)
+  const [captures, setCaptures] = useState<Capture[]>([])
+  const [target, setTarget] = useState<number | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [index, setIndex] = useState(0)
+  const [view, setView] = useState<ViewKey>("original")
+  const [filter, setFilter] = useState<ListFilter>("all")
+  const [downloading, setDownloading] = useState(false)
+  const [downloadError, setDownloadError] = useState<string | null>(null)
+
+  const loadBatch = useCallback(async () => {
+    setLoading(true)
+    try {
+      const data = await load(id)
+      setBatch(data.batch)
+      setCaptures(data.captures)
+      setError(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não foi possível carregar o lote.")
+    } finally {
+      setLoading(false)
+    }
+  }, [id, load])
+
+  useEffect(() => { loadBatch() }, [loadBatch])
+  useEffect(() => {
+    getInspectionSettings().then((s) => setTarget(s.minQualityScore)).catch(() => setTarget(null))
+  }, [])
+
+  const images = useMemo(() => captures.map(asImage), [captures])
+  const flags = useMemo(() => captures.map(flagsOf), [captures])
+  const statuses = useMemo(() => captures.map((c, i) => ({
+    failing: c.is_valid ? [] : CHECKS.filter((check) => flags[i][check.key]),
+    corrected: Boolean(c.corrections?.length),
+  })), [captures, flags])
+
+  const go = useCallback((next: number) => setIndex(Math.max(0, Math.min(captures.length - 1, next))), [captures.length])
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.target as HTMLElement).closest("input, textarea, select, [role=listbox]")) return
+      if (event.key === "ArrowRight") go(index + 1)
+      if (event.key === "ArrowLeft") go(index - 1)
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [go, index])
+
+  const downloadImages = async () => {
+    if (!batch) return
+    setDownloading(true)
+    setDownloadError(null)
+    try {
+      const JSZip = (await import("jszip")).default
+      const zip = new JSZip()
+      for (const capture of captures) {
+        const folder = zip.folder(capture.filename.replace(/\.[^.]+$/, "") || capture.id)
+        if (!folder) continue
+        const files = [
+          [capture.original_uri, "original"],
+          [capture.processed_areas_uri, "grade"],
+          [capture.processed_pins_uri, "pinos"],
+          [capture.processed_uri, "compartimentos"],
+          [capture.processed_shaft_uri, "hastes"],
+        ] as const
+        for (const [url, name] of files) {
+          if (!url) continue
+          const res = await fetch(url).catch(() => null)
+          if (res?.ok) folder.file(`${name}.png`, await res.blob())
+        }
+      }
+      const blob = await zip.generateAsync({ type: "blob" })
+      const href = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = href
+      a.download = `${batch.name.replace(/\s+/g, "_")}.zip`
+      a.click()
+      URL.revokeObjectURL(href)
+    } catch {
+      setDownloadError("Não foi possível baixar as imagens. Tente novamente.")
+    } finally {
+      setDownloading(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center">
+        <Loader2 className="size-8 animate-spin text-muted-foreground" />
+      </div>
     )
+  }
+
+  const parent = crumbs[crumbs.length - 1]
+
+  if (error || !batch) {
+    return (
+      <div className="flex min-h-dvh flex-col items-center justify-center gap-3 p-6 text-center">
+        <AlertTriangle className="size-8 text-danger-emphasis" />
+        <p className="font-medium text-foreground">Não foi possível abrir o lote</p>
+        <p className="text-sm text-muted-foreground">{error}</p>
+        {parent?.href && <Button variant="outline" asChild><Link href={parent.href}><ArrowLeft /> Voltar para {parent.label.toLowerCase()}</Link></Button>}
+      </div>
+    )
+  }
+
+  const total = batch.total_captures
+  const approved = batch.valid_captures ?? captures.filter((c) => c.is_valid).length
+  const rejected = batch.invalid_captures ?? total - approved
+  const corrected = statuses.filter((s) => s.corrected).length
+  const quality = batch.quality_score ?? (total ? (approved / total) * 100 : 0)
+  const belowTarget = target !== null && quality < target
+  const capture = captures[index]
+
+  const openDefect = (key: DefectKey) => {
+    const first = flags.findIndex((f) => f[key])
+    if (first < 0) return
+    setFilter("all")
+    setView(CHECKS.find((c) => c.key === key)?.view ?? "original")
+    setIndex(first)
+    document.getElementById("inspecao-capturas")?.scrollIntoView({ behavior: "smooth", block: "start" })
+  }
+
+  const meta = [
+    batch.unit ? batch.unit.name : null,
+    batch.author ? `Coletado por ${batch.author.name ?? "membro removido"} · matrícula ${batch.author.matricula}` : null,
+    formatDate(batch.created_at),
+  ].filter(Boolean)
+
+  return (
+    <div className="flex flex-col gap-6 p-4 sm:p-6 lg:p-8">
+      <PageHeader
+        crumbs={[...crumbs, { label: "Detalhes" }]}
+        title={batch.name}
+        description={
+          <>
+            <p>{meta.join(" · ")}</p>
+            {batch.description && <p className="mt-2 max-w-2xl text-foreground">{batch.description}</p>}
+          </>
+        }
+        actions={
+          <>
+            <Button variant="outline" onClick={downloadImages} disabled={downloading || captures.length === 0}>
+              {downloading ? <Loader2 className="animate-spin" /> : <Download />}
+              {downloading ? "Baixando..." : "Baixar imagens"}
+            </Button>
+            {downloadError && <p role="alert" className="text-xs text-danger-emphasis">{downloadError}</p>}
+          </>
+        }
+      />
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <section aria-label="Resultado do lote" className="flex flex-col rounded-xl border border-border bg-card p-4">
+          <h2 className="text-sm font-semibold text-foreground">Resultado do lote</h2>
+          <div className="mt-3 flex items-end justify-between gap-3">
+            <div>
+              <p className="text-4xl font-bold tracking-tight tabular-nums text-foreground">{quality.toFixed(1)}%</p>
+              <p className="mt-1 text-sm text-muted-foreground">das capturas aprovadas</p>
+            </div>
+            {target !== null && (
+              <p className={cn("text-right text-sm", belowTarget ? "text-danger-emphasis" : "text-success-emphasis")}>
+                {belowTarget ? "Abaixo" : "Dentro"} da meta de {target}%
+              </p>
+            )}
+          </div>
+          <div className="relative mt-3 h-2 rounded-full bg-muted">
+            <div className={cn("h-full rounded-full", belowTarget ? "bg-danger" : "bg-success")} style={{ width: `${Math.min(quality, 100)}%` }} />
+            {target !== null && <div className="absolute -top-1 h-4 w-0.5 rounded bg-foreground/60" style={{ left: `${target}%` }} title={`Meta: ${target}%`} />}
+          </div>
+          <dl className="mt-5 grid grid-cols-2 gap-x-4 gap-y-3 text-sm sm:grid-cols-4">
+            <div><dt className="text-muted-foreground">Capturas</dt><dd className="text-lg font-semibold tabular-nums text-foreground">{total}</dd></div>
+            <div><dt className="flex items-center gap-1.5 text-muted-foreground"><StatusDot rejected={false} />Aprovadas</dt><dd className="text-lg font-semibold tabular-nums text-foreground">{approved}</dd></div>
+            <div><dt className="flex items-center gap-1.5 text-muted-foreground"><StatusDot rejected />Reprovadas</dt><dd className="text-lg font-semibold tabular-nums text-foreground">{rejected}</dd></div>
+            <div><dt className="text-muted-foreground">Corrigidas</dt><dd className="text-lg font-semibold tabular-nums text-foreground">{corrected}</dd></div>
+          </dl>
+        </section>
+        <DefectSummary flags={flags} onSelect={openDefect} twoColumns />
+      </div>
+
+      {captures.length === 0 ? (
+        <p className="rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">Este lote não tem capturas.</p>
+      ) : (
+        <section id="inspecao-capturas" aria-label="Capturas do lote" className="scroll-mt-4">
+          <h2 className="mb-3 text-sm font-semibold text-foreground">Capturas</h2>
+          <div className="grid grid-cols-1 gap-4 lg:h-[min(760px,calc(100dvh-4rem))] lg:grid-cols-[260px_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)] xl:grid-cols-[280px_minmax(0,1fr)_320px]">
+            <div className="flex min-h-0 flex-col">
+              <CaptureList images={images} statuses={statuses} selected={index} filter={filter} onFilter={setFilter} onSelect={go} />
+            </div>
+            <CaptureViewer
+              image={images[index]}
+              index={index}
+              total={images.length}
+              view={view}
+              onView={setView}
+              onPrev={() => go(index - 1)}
+              onNext={() => go(index + 1)}
+            />
+            <div className="min-h-0 lg:col-span-2 xl:col-span-1">
+              <CaptureFindings capture={capture} flags={flags[index]} view={view} onView={setView} />
+            </div>
+          </div>
+        </section>
+      )}
+    </div>
+  )
 }

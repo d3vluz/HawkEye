@@ -66,8 +66,13 @@ export function AppShell({ role, children }: { role: SessionMember["role"]; chil
   const [mounted, setMounted] = useState(false)
   useEffect(() => {
     setMounted(true)
-    if (window.innerWidth < COMPACT_VIEWPORT) setOpen(false)
     getMe().then(setMember).catch(console.error)
+    // Recolhe ao entrar em telas estreitas, inclusive ao redimensionar; reabrir fica a critério do usuário.
+    const wide = window.matchMedia(`(min-width: ${COMPACT_VIEWPORT}px)`)
+    if (!wide.matches) setOpen(false)
+    const onChange = (event: MediaQueryListEvent) => { if (!event.matches) setOpen(false) }
+    wide.addEventListener("change", onChange)
+    return () => wide.removeEventListener("change", onChange)
   }, [])
 
   const initials = member?.name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase() ?? ''

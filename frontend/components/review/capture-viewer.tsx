@@ -59,7 +59,7 @@ export function CaptureViewer({ image, index, total, view, onView, onPrev, onNex
         </div>
       </header>
 
-      <div className="relative min-h-[320px] flex-1 bg-black">
+      <div className="relative aspect-[17/10] min-h-0 bg-black xl:aspect-auto xl:flex-1">
         <Image
           key={`${image.sha256}-${view}`}
           src={String(image[URL_BY_VIEW[view]])}

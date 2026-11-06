@@ -11,6 +11,14 @@ export interface CaptureStatus {
 
 export type ListFilter = "all" | "rejected"
 
+export function StatusDot({ rejected, className }: { rejected: boolean; className?: string }) {
+  return <span aria-hidden className={cn("inline-block size-2 shrink-0 rounded-full", rejected ? "bg-danger" : "bg-success", className)} />
+}
+
+export function statusText(status: CaptureStatus) {
+  return status.failing.length > 0 ? status.failing.map((c) => c.label).join(", ") : "Aprovada"
+}
+
 export function CaptureList({ images, statuses, selected, filter, onFilter, onSelect }: {
   images: ProcessedImage[]
   statuses: CaptureStatus[]
@@ -25,7 +33,7 @@ export function CaptureList({ images, statuses, selected, filter, onFilter, onSe
     .filter(({ status }) => filter === "all" || status.failing.length > 0)
 
   return (
-    <section aria-label="Capturas do lote" className="flex min-h-0 flex-col rounded-xl border border-border bg-card">
+    <section aria-label="Capturas do lote" className="flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-card">
       <div className="flex gap-1 border-b border-border p-2" role="tablist" aria-label="Filtrar capturas">
         {([["all", "Todas", images.length], ["rejected", "Reprovadas", rejectedCount]] as const).map(([key, label, count]) => (
           <button
@@ -39,39 +47,42 @@ export function CaptureList({ images, statuses, selected, filter, onFilter, onSe
             )}
           >
             {label}
-            <span className="tabular-nums text-xs text-muted-foreground">{count}</span>
+            <span className="text-xs tabular-nums text-muted-foreground">{count}</span>
           </button>
         ))}
       </div>
 
-      <ol className="min-h-0 flex-1 space-y-1 overflow-y-auto p-2">
+      {/* Abaixo de lg vira uma faixa horizontal para não empurrar a imagem para fora da tela. */}
+      <ol className="flex min-h-0 flex-1 gap-1 overflow-x-auto p-2 lg:flex-col lg:overflow-x-hidden lg:overflow-y-auto">
         {visible.length === 0 && (
-          <li className="px-3 py-8 text-center text-sm text-muted-foreground">Nenhuma captura reprovada.</li>
+          <li className="w-full px-3 py-8 text-center text-sm text-muted-foreground">Nenhuma captura reprovada.</li>
         )}
         {visible.map(({ img, index, status }) => {
           const rejected = status.failing.length > 0
+          const active = index === selected
           return (
-            <li key={img.sha256}>
+            <li key={img.sha256} className="w-56 shrink-0 lg:w-auto">
               <button
                 onClick={() => onSelect(index)}
-                aria-current={index === selected ? "true" : undefined}
+                aria-current={active ? "true" : undefined}
                 className={cn(
                   "flex w-full items-center gap-3 rounded-lg border p-2 text-left transition-colors",
-                  index === selected ? "border-primary-emphasis bg-muted" : "border-transparent hover:bg-muted/60"
+                  active ? "border-primary-emphasis/60 bg-muted" : "border-transparent hover:bg-muted/60"
                 )}
               >
                 <span className="relative size-12 shrink-0 overflow-hidden rounded-md border border-border bg-muted">
                   <Image src={img.original_url} alt="" fill sizes="48px" className="object-cover" />
+                  <span className="absolute bottom-0 left-0 rounded-tr bg-background/85 px-1 text-[10px] font-medium tabular-nums text-foreground">
+                    {index + 1}
+                  </span>
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-1.5 text-xs text-muted-foreground tabular-nums">
-                    {index + 1}
-                    {status.corrected && <span className="rounded bg-muted px-1 text-[11px] text-foreground">corrigida</span>}
+                  <span className="block truncate text-sm font-medium text-foreground" title={img.filename}>{img.filename}</span>
+                  <span className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <StatusDot rejected={rejected} />
+                    <span className="truncate">{statusText(status)}</span>
                   </span>
-                  <span className="block truncate text-sm font-medium text-foreground">{img.filename}</span>
-                  <span className={cn("block truncate text-xs", rejected ? "text-danger-emphasis" : "text-success-emphasis")}>
-                    {rejected ? `Reprovada · ${status.failing.map((c) => c.label).join(", ")}` : "Aprovada"}
-                  </span>
+                  {status.corrected && <span className="mt-0.5 block text-[11px] text-primary-emphasis">Corrigida por você</span>}
                 </span>
               </button>
             </li>
