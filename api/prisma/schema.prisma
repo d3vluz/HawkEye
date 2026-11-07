@@ -42,10 +42,8 @@ model Capture {
   processedPinsUri  String?
   processedShaftUri String?
 
-  isValid       Boolean  @default(false)
-  areasDetected Int      @default(0)
-  pinsDetected  Int      @default(0)
-  defectsCount  Int      @default(0)
+  isValid      Boolean @default(false)
+  defectsCount Int     @default(0)
 
   hasMissingPins    Boolean @default(false)
   hasExtraPins      Boolean @default(false)
@@ -58,25 +56,6 @@ model Capture {
   corrections Json?
 
   createdAt DateTime @default(now())
-
-  compartments Compartment[]
-}
-
-model Compartment {
-  id        String  @id @default(uuid())
-  captureId String
-  capture   Capture @relation(fields: [captureId], references: [id], onDelete: Cascade)
-
-  gridRow   Int
-  gridCol   Int
-  bboxX     Int
-  bboxY     Int
-  bboxWidth Int
-  bboxHeight Int
-
-  pinsCount Int     @default(0)
-  isValid   Boolean @default(false)
-  hasDefect Boolean @default(false)
 }
 
 enum MemberStatus {

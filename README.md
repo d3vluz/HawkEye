@@ -147,14 +147,14 @@ Os buckets do MinIO continuam públicos: quem tiver a URL de uma imagem consegue
 frontend/   Next.js 15 - interface (login, /inspecao, /results, /coletas, /admin)
 api/        NestJS - orquestrador HTTP
   src/
-    auth/       login, sessão e permissões por perfil
-    team/       membros e unidades
-    images/     upload (multer → MinIO) + proxy para o worker
-    batches/    CRUD de lotes (DB + move/delete no MinIO)
-    metrics/    agregação do dashboard
-    storage/    cliente MinIO (@aws-sdk/client-s3)
-    cv-worker/  cliente HTTP do worker
-    health/     healthcheck
+    autenticacao/  login, sessão e permissões por perfil
+    equipe/        membros e linhas de produção
+    imagens/       upload (multer → MinIO) e envio ao worker
+    lotes/         registro, consulta e exclusão de lotes (banco + MinIO)
+    configuracoes/ critérios de inspeção, armazenamento e status
+    metricas/      agregação do dashboard
+    armazenamento/ cliente MinIO (@aws-sdk/client-s3)
+    worker/        cliente HTTP do worker
   prisma/schema.prisma
 worker/     FastAPI - worker de visão computacional
   src/
@@ -187,7 +187,7 @@ docker-compose.yml
 ### Banco de dados
 
 ```
-Batch (1) → Capture (N) → Compartment (N)   [cascade delete]
+Batch (1) → Capture (N)   [cascade delete]
 ```
 
 `Capture` guarda flags de defeito (`hasMissingPins`, `hasDamagedPins`, `hasWrongColorPins`, `hasStructureDamage`, `hasShaftDefects`) e um `sha256` único por imagem para deduplicação.

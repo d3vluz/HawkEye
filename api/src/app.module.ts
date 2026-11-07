@@ -1,31 +1,38 @@
-import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
-import { HttpModule } from '@nestjs/axios';
-import { PrismaModule } from './prisma/prisma.module';
-import { StorageModule } from './storage/storage.module';
-import { CvWorkerModule } from './cv-worker/cv-worker.module';
-import { ImagesModule } from './images/images.module';
-import { BatchesModule } from './batches/batches.module';
-import { MetricsModule } from './metrics/metrics.module';
-import { HealthModule } from './health/health.module';
-import { TeamModule } from './team/team.module';
-import { AuthModule } from './auth/auth.module';
-import { SettingsModule } from './settings/settings.module';
+// Módulo raiz: junta os módulos de cada área e expõe o healthcheck usado pelo Docker.
+
+import { Controller, Get, Module } from '@nestjs/common';
+import { ArmazenamentoModule } from './armazenamento/armazenamento.service';
+import { AutenticacaoModule } from './autenticacao/autenticacao.controller';
+import { Publica } from './autenticacao/decoradores';
+import { BancoModule } from './banco/banco.service';
+import { ConfiguracoesModule } from './configuracoes/configuracoes.controller';
+import { EquipeModule } from './equipe/equipe.controller';
+import { ImagensModule } from './imagens/imagens.controller';
+import { LotesModule } from './lotes/lotes.controller';
+import { MetricasModule } from './metricas/metricas.controller';
+import { WorkerModule } from './worker/worker.service';
+
+@Publica()
+@Controller('health')
+export class SaudeController {
+  @Get()
+  saude() {
+    return { status: 'ok' };
+  }
+}
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
-    HttpModule,
-    PrismaModule,
-    AuthModule,
-    StorageModule,
-    CvWorkerModule,
-    ImagesModule,
-    BatchesModule,
-    MetricsModule,
-    HealthModule,
-    TeamModule,
-    SettingsModule,
+    BancoModule,
+    ArmazenamentoModule,
+    WorkerModule,
+    AutenticacaoModule,
+    EquipeModule,
+    ImagensModule,
+    LotesModule,
+    ConfiguracoesModule,
+    MetricasModule,
   ],
+  controllers: [SaudeController],
 })
 export class AppModule {}

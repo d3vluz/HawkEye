@@ -125,41 +125,21 @@ export default function ReviewPage() {
     setError(null)
     try {
       const captures = images.map((img, i) => {
-        const { auto, flags, own, failing } = reviews[i]
-        const cols = img.grid_cols || Math.ceil(Math.sqrt(img.boxes_info.total_boxes))
+        const { auto, flags, own } = reviews[i]
         return {
           filename: img.filename,
           sha256: img.sha256,
-          original_uri: img.original_url,
-          processed_uri: img.boxes_url,
-          processed_areas_uri: img.areas_url,
-          processed_pins_uri: img.pins_url,
-          processed_shaft_uri: img.shafts_url,
-          is_valid: failing.length === 0,
           areas_detected: img.areas_count,
           grid_rows: img.grid_rows,
           grid_cols: img.grid_cols,
-          pins_detected: img.pins_count,
           defects_count: defectCount(img, flags, auto),
           has_missing_pins: flags.missing,
           has_extra_pins: flags.extra,
           has_damaged_pins: flags.damaged,
           has_wrong_color_pins: flags.wrongColor,
-          has_structure_damage: flags.structure,
           has_shaft_defects: flags.shaft,
           structure_override: own?.structure,
           corrections: corrections(auto, own),
-          compartments: img.boxes_info.boxes.map((box, b) => ({
-            grid_row: Math.floor(b / cols),
-            grid_col: b % cols,
-            bbox_x: box.x,
-            bbox_y: box.y,
-            bbox_width: box.width,
-            bbox_height: box.height,
-            pins_count: box.pins_count,
-            is_valid: box.status === "single",
-            has_defect: box.status !== "single",
-          })),
         }
       })
       const res = await apiFetch("/api/batches/create", {
