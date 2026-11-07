@@ -2,11 +2,12 @@
 
 import { Injectable } from '@nestjs/common';
 import { BancoService } from '../banco/banco.service';
-import { autor, nomesDosAutores, percentual } from '../comum/lotes';
+import { loteResumido, nomesDosAutores, percentual } from '../comum/lotes';
 import { CriteriosService } from '../configuracoes/criterios.service';
 
 const DIAS_DO_PERIODO = 30;
 const DIA_MS = 24 * 60 * 60 * 1000;
+// Os dias do gráfico seguem o relógio da fábrica, não o UTC do container.
 const chaveDoDia = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' });
 
 const TIPOS_DE_DEFEITO = [
@@ -74,6 +75,7 @@ export class MetricasService {
 
   async dashboard(linhaId?: string) {
     const agora = Date.now();
+    // Índice 0 = hoje; 0..29 é o período atual e 30..59 o anterior.
     const dias = Array.from({ length: DIAS_DO_PERIODO * 2 }, (_, i) => chaveDoDia.format(new Date(agora - i * DIA_MS)));
     const indiceDoDia = new Map(dias.map((dia, i) => [dia, i]));
 
@@ -108,6 +110,7 @@ export class MetricasService {
       const indice = indiceDoDia.get(chaveDoDia.format(lote.createdAt));
       if (indice === undefined) continue;
       const noPeriodoAtual = indice < DIAS_DO_PERIODO;
+      // A comparação entre linhas ignora o filtro de linha, para mostrar todas lado a lado.
       if (noPeriodoAtual) somarEm(porLinha, lote.unitId, lote, abaixoDaMeta(lote));
       if (linhaId && lote.unitId !== linhaId) continue;
 
@@ -150,16 +153,7 @@ export class MetricasService {
         ...(porLinha.has(null) ? [{ id: null, name: 'Sem linha', ...porLinha.get(null)!.resumo() }] : []),
       ],
       operators: maisAtivos.map(([matricula, acumulado]) => ({ matricula, name: nomes.get(matricula) ?? null, ...acumulado.resumo() })),
-      recentBatches: recentes.map((l) => ({
-        id: l.id,
-        name: l.name,
-        createdAt: l.createdAt.toISOString(),
-        unit: l.unit,
-        author: autor(l.authorMatricula, nomes),
-        captures: l.totalCaptures,
-        approvalRate: percentual(l.validCaptures, l.totalCaptures),
-        defects: l.captures.reduce((soma, c) => soma + c.defectsCount, 0),
-      })),
+      recentBatches: recentes.map((l) => loteResumido(l, nomes, l.captures.reduce((soma, c) => soma + c.defectsCount, 0))),
     };
   }
 }

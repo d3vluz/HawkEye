@@ -1,88 +1,92 @@
 "use client"
 
+// Troca obrigatória da senha temporária no primeiro acesso ou após o admin redefini-la.
+
 import { useState, type FormEvent } from "react"
 import { Loader2, LockKeyhole } from "lucide-react"
-import { AuthShell, FormError, PasswordField } from "@/components/auth-shell"
+import { CampoDeSenha, ErroDoFormulario } from "@/components/acesso/campos"
+import { LayoutDeAcesso } from "@/components/acesso/layout-de-acesso"
 import { Button } from "@/components/ui/button"
-import { changePassword, homeFor, logout } from "@/lib/api-client"
+import { paginaInicial, sair, trocarSenha } from "@/lib/api"
 
-const MIN_PASSWORD_LENGTH = 8
+const TAMANHO_MINIMO = 8
 
-type Field = "current" | "new" | "confirmation"
+type Campo = "atual" | "nova" | "confirmacao"
 
-export default function ChangePasswordPage() {
-  const [currentPassword, setCurrentPassword] = useState("")
-  const [newPassword, setNewPassword] = useState("")
-  const [confirmation, setConfirmation] = useState("")
-  const [error, setError] = useState<string | null>(null)
-  const [invalidField, setInvalidField] = useState<Field | null>(null)
-  const [submitting, setSubmitting] = useState(false)
+export default function PaginaDeTrocaDeSenha() {
+  const [senhaAtual, setSenhaAtual] = useState("")
+  const [novaSenha, setNovaSenha] = useState("")
+  const [confirmacao, setConfirmacao] = useState("")
+  const [erro, setErro] = useState<string | null>(null)
+  const [campoInvalido, setCampoInvalido] = useState<Campo | null>(null)
+  const [enviando, setEnviando] = useState(false)
 
-  const fail = (message: string, field: Field | null) => {
-    setError(message)
-    setInvalidField(field)
+  const falhar = (mensagem: string | null, campo: Campo | null) => {
+    setErro(mensagem)
+    setCampoInvalido(campo)
   }
 
-  const handleSubmit = async (event: FormEvent) => {
-    event.preventDefault()
-    fail("", null)
-    if (newPassword.length < MIN_PASSWORD_LENGTH) return fail(`A nova senha precisa ter ao menos ${MIN_PASSWORD_LENGTH} caracteres.`, "new")
-    if (newPassword !== confirmation) return fail("A confirmação não é igual à nova senha.", "confirmation")
+  const aoEnviar = async (evento: FormEvent) => {
+    evento.preventDefault()
+    falhar(null, null)
+    if (novaSenha.length < TAMANHO_MINIMO) return falhar(`A nova senha precisa ter ao menos ${TAMANHO_MINIMO} caracteres.`, "nova")
+    if (novaSenha !== confirmacao) return falhar("A confirmação não é igual à nova senha.", "confirmacao")
 
-    setSubmitting(true)
+    setEnviando(true)
     try {
-      const member = await changePassword(currentPassword, newPassword)
-      window.location.assign(homeFor(member))
-    } catch (err) {
-      if (err instanceof TypeError) fail("Não foi possível conectar ao servidor. Tente novamente.", null)
-      else fail((err as Error).message, (err as Error).message === "Senha atual incorreta" ? "current" : "new")
-      setSubmitting(false)
+      const membro = await trocarSenha(senhaAtual, novaSenha)
+      window.location.assign(paginaInicial(membro))
+    } catch (e) {
+      const mensagem = (e as Error).message
+      if (e instanceof TypeError) falhar("Não foi possível conectar ao servidor. Tente novamente.", null)
+      else falhar(mensagem, mensagem === "Senha atual incorreta" ? "atual" : "nova")
+      setEnviando(false)
     }
   }
 
   return (
-    <AuthShell title="Crie sua senha" description="Sua senha temporária precisa ser trocada antes de continuar.">
-      <form onSubmit={handleSubmit} className="space-y-5">
-        <PasswordField
-          id="current-password"
-          label="Senha temporária"
-          icon={LockKeyhole}
-          invalid={invalidField === "current"}
+    <LayoutDeAcesso titulo="Crie sua senha" descricao="Sua senha temporária precisa ser trocada antes de continuar.">
+      <form onSubmit={aoEnviar} className="space-y-5">
+        <CampoDeSenha
+          id="senha-atual"
+          rotulo="Senha temporária"
+          icone={LockKeyhole}
+          invalido={campoInvalido === "atual"}
           autoComplete="current-password"
           required
-          value={currentPassword}
-          onChange={(event) => setCurrentPassword(event.target.value)}
+          value={senhaAtual}
+          onChange={(evento) => setSenhaAtual(evento.target.value)}
         />
-        <PasswordField
-          id="new-password"
-          label="Nova senha"
-          icon={LockKeyhole}
-          invalid={invalidField === "new"}
-          hint={`Use ao menos ${MIN_PASSWORD_LENGTH} caracteres.`}
+        <CampoDeSenha
+          id="nova-senha"
+          rotulo="Nova senha"
+          icone={LockKeyhole}
+          invalido={campoInvalido === "nova"}
+          dica={`Use ao menos ${TAMANHO_MINIMO} caracteres.`}
           autoComplete="new-password"
           required
-          value={newPassword}
-          onChange={(event) => setNewPassword(event.target.value)}
+          value={novaSenha}
+          onChange={(evento) => setNovaSenha(evento.target.value)}
         />
-        <PasswordField
-          id="confirm-password"
-          label="Confirmar nova senha"
-          icon={LockKeyhole}
-          invalid={invalidField === "confirmation"}
+        <CampoDeSenha
+          id="confirmacao"
+          rotulo="Confirmar nova senha"
+          icone={LockKeyhole}
+          invalido={campoInvalido === "confirmacao"}
           autoComplete="new-password"
           required
-          value={confirmation}
-          onChange={(event) => setConfirmation(event.target.value)}
+          value={confirmacao}
+          onChange={(evento) => setConfirmacao(evento.target.value)}
         />
-        <FormError message={error} />
-        <Button type="submit" disabled={submitting} className="h-11 w-full text-[15px] font-semibold">
-          {submitting && <Loader2 className="size-4 animate-spin" />}
-          {submitting ? "Salvando…" : "Salvar e continuar"}
+        <ErroDoFormulario mensagem={erro} />
+        <Button type="submit" disabled={enviando} className="h-11 w-full text-[15px] font-semibold">
+          {enviando && <Loader2 className="size-4 animate-spin" />}
+          {enviando ? "Salvando…" : "Salvar e continuar"}
         </Button>
       </form>
-      <Button type="button" variant="ghost" onClick={logout} className="mt-3 h-11 w-full text-muted-foreground">
+      <Button type="button" variant="ghost" onClick={sair} className="mt-3 h-11 w-full text-muted-foreground">
         Sair
       </Button>
-    </AuthShell>
+    </LayoutDeAcesso>
   )
 }

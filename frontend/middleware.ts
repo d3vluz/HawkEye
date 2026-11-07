@@ -1,41 +1,37 @@
+// Redireciona pela sessão do cookie: sem sessão vai ao login, senha temporária à troca e cada perfil à sua área.
+// A permissão de verdade é sempre conferida pela API; aqui é só navegação.
+
 import { jwtVerify } from "jose"
 import { NextResponse, type NextRequest } from "next/server"
 
-const SESSION_COOKIE = "hawkeye_session"
+import type { Perfil } from "@/types"
 
-interface Session {
-  role: "ADMIN" | "EMPLOYEE"
-  mustChangePassword: boolean
-}
+const COOKIE_DA_SESSAO = "hawkeye_session"
 
-async function readSession(request: NextRequest): Promise<Session | null> {
-  const token = request.cookies.get(SESSION_COOKIE)?.value
+async function lerSessao(requisicao: NextRequest) {
+  const token = requisicao.cookies.get(COOKIE_DA_SESSAO)?.value
   if (!token) return null
   try {
-    const secret = new TextEncoder().encode(process.env.JWT_SECRET)
-    const { payload } = await jwtVerify(token, secret, { algorithms: ["HS256"] })
-    return payload as unknown as Session
+    const segredo = new TextEncoder().encode(process.env.JWT_SECRET)
+    const { payload } = await jwtVerify(token, segredo, { algorithms: ["HS256"] })
+    return payload as unknown as { role: Perfil; mustChangePassword: boolean }
   } catch {
     return null
   }
 }
 
-export async function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl
-  const session = await readSession(request)
-  const redirectTo = (path: string) => NextResponse.redirect(new URL(path, request.url))
+export async function middleware(requisicao: NextRequest) {
+  const { pathname: caminho } = requisicao.nextUrl
+  const sessao = await lerSessao(requisicao)
+  const irPara = (destino: string) => NextResponse.redirect(new URL(destino, requisicao.url))
 
-  if (!session) return pathname === "/" ? NextResponse.next() : redirectTo("/")
+  if (!sessao) return caminho === "/" ? NextResponse.next() : irPara("/")
+  if (sessao.mustChangePassword) return caminho === "/trocar-senha" ? NextResponse.next() : irPara("/trocar-senha")
 
-  if (session.mustChangePassword) {
-    return pathname === "/trocar-senha" ? NextResponse.next() : redirectTo("/trocar-senha")
-  }
-
-  const isAdmin = session.role === "ADMIN"
-  const home = isAdmin ? "/admin" : "/inspecao"
-  if (pathname === "/" || pathname === "/trocar-senha") return redirectTo(home)
-  if (pathname.startsWith("/admin") !== isAdmin) return redirectTo(home)
-
+  const admin = sessao.role === "ADMIN"
+  const inicio = admin ? "/admin" : "/inspecao"
+  if (caminho === "/" || caminho === "/trocar-senha") return irPara(inicio)
+  if (caminho.startsWith("/admin") !== admin) return irPara(inicio)
   return NextResponse.next()
 }
 

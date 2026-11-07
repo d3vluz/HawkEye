@@ -5,7 +5,7 @@ import { Prisma } from '@prisma/client';
 import { ArmazenamentoService } from '../armazenamento/armazenamento.service';
 import { MembroDaSessao } from '../autenticacao/decoradores';
 import { BancoService } from '../banco/banco.service';
-import { autor, nomesDosAutores, percentual } from '../comum/lotes';
+import { loteResumido, nomesDosAutores } from '../comum/lotes';
 import { CriteriosService } from '../configuracoes/criterios.service';
 import { CapturaRevisada, NovoLote } from './dto';
 
@@ -148,19 +148,7 @@ export class LotesService {
     ]);
     const nomes = await nomesDosAutores(this.banco, lotes.map((l) => l.authorMatricula));
     const defeitosPorLote = new Map(defeitos.map((d) => [d.batchId, d._sum.defectsCount ?? 0]));
-    return {
-      batches: lotes.map((l) => ({
-        id: l.id,
-        name: l.name,
-        description: l.description,
-        total_captures: l.totalCaptures,
-        total_defects: defeitosPorLote.get(l.id) ?? 0,
-        quality_score: percentual(l.validCaptures, l.totalCaptures) ?? 0,
-        created_at: l.createdAt.toISOString(),
-        author: autor(l.authorMatricula, nomes),
-        unit: l.unit,
-      })),
-    };
+    return { batches: lotes.map((l) => loteResumido(l, nomes, defeitosPorLote.get(l.id) ?? 0)) };
   }
 
   private async buscarDetalhe(filtro: { id: string; authorMatricula?: string }) {
@@ -168,19 +156,7 @@ export class LotesService {
     if (!lote) throw new NotFoundException('Lote não encontrado');
     const nomes = await nomesDosAutores(this.banco, [lote.authorMatricula]);
     return {
-      batch: {
-        id: lote.id,
-        name: lote.name,
-        description: lote.description,
-        created_at: lote.createdAt.toISOString(),
-        author: autor(lote.authorMatricula, nomes),
-        unit: lote.unit,
-        total_captures: lote.totalCaptures,
-        valid_captures: lote.validCaptures,
-        invalid_captures: lote.invalidCaptures,
-        total_defects: lote.captures.reduce((soma, c) => soma + c.defectsCount, 0),
-        quality_score: percentual(lote.validCaptures, lote.totalCaptures) ?? 0,
-      },
+      batch: loteResumido(lote, nomes, lote.captures.reduce((soma, c) => soma + c.defectsCount, 0)),
       captures: lote.captures.map((c) => ({
         id: c.id,
         filename: c.filename,
@@ -191,12 +167,15 @@ export class LotesService {
         processed_pins_uri: c.processedPinsUri,
         processed_shaft_uri: c.processedShaftUri,
         defects_count: c.defectsCount,
-        hasMissingPins: c.hasMissingPins,
-        hasExtraPins: c.hasExtraPins,
-        hasDamagedPins: c.hasDamagedPins,
-        hasWrongColorPins: c.hasWrongColorPins,
-        hasStructureDamage: c.hasStructureDamage,
-        hasShaftDefects: c.hasShaftDefects,
+        // Mesmas chaves usadas pela revisão no frontend e nas correções do operador.
+        defects: {
+          missing: c.hasMissingPins,
+          extra: c.hasExtraPins,
+          wrongColor: c.hasWrongColorPins,
+          damaged: c.hasDamagedPins,
+          shaft: c.hasShaftDefects,
+          structure: c.hasStructureDamage,
+        },
         corrections: c.corrections,
       })),
     };

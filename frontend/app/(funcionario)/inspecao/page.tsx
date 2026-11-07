@@ -1,321 +1,210 @@
 "use client"
 
-import React, { useState, useCallback, useEffect } from "react"
+// Início da inspeção: o funcionário escolhe as capturas (PNG), envia e analisa; o resultado segue para a revisão.
+
+import { useCallback, useEffect, useRef, useState, type DragEvent } from "react"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
+import { AlertCircle, ChevronLeft, ChevronRight, Image as IconeDeImagem, Loader2, Plus, Trash2, Upload, X } from "lucide-react"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Upload, Trash2, ChevronLeft, ChevronRight, Loader2, AlertCircle, X, Plus, Image as ImageIcon } from "lucide-react"
+import { analisarImagens, enviarImagens } from "@/lib/api"
 import { cn } from "@/lib/utils"
-import { apiFetch } from "@/lib/api-client"
 
-interface UploadedFile {
+const MAXIMO_DE_ARQUIVOS = 10
+const TAMANHO_MAXIMO = 10 * 1024 * 1024
+
+interface Arquivo {
   id: string
-  file: File
-  preview: string
+  arquivo: File
+  previa: string
 }
 
-interface UploadResponse {
-  filename: string
-  storage_path: string
-  sha256: string
-  timestamp: string
+function problemaDoArquivo(arquivo: File) {
+  if (arquivo.type !== "image/png") return `${arquivo.name}: apenas arquivos PNG são permitidos.`
+  if (arquivo.size > TAMANHO_MAXIMO) return `${arquivo.name} excede 10 MB.`
+  return null
 }
 
-// --- Constantes ---
-const MAX_FILES = 10
-const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
-
-export default function HawkEyePage() {
-  const [files, setFiles] = useState<UploadedFile[]>([])
-  const [isDragOver, setIsDragOver] = useState(false)
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [uploadProgress, setUploadProgress] = useState<string>("")
-  const [viewerOpen, setViewerOpen] = useState(false)
-  const [currentImageIndex, setCurrentImageIndex] = useState(0)
-
+export default function PaginaDeInspecao() {
   const router = useRouter()
+  const seletor = useRef<HTMLInputElement>(null)
+  const [arquivos, setArquivos] = useState<Arquivo[]>([])
+  const [arrastando, setArrastando] = useState(false)
+  const [etapa, setEtapa] = useState<string | null>(null)
+  const [erro, setErro] = useState<string | null>(null)
+  const [ampliada, setAmpliada] = useState<number | null>(null)
 
-  const validateFile = (file: File): string | null => {
-    if (file.type !== "image/png") {
-      return `${file.name}: Apenas arquivos PNG são permitidos.`
-    }
-    if (file.size > MAX_FILE_SIZE) return `${file.name} excede 10MB`
-    return null
+  const adicionar = (novos: File[]) => {
+    const vagas = MAXIMO_DE_ARQUIVOS - arquivos.length
+    if (vagas <= 0) return setErro(`Limite de ${MAXIMO_DE_ARQUIVOS} imagens atingido.`)
+    const escolhidos = novos.slice(0, vagas)
+    const problemas = escolhidos.map(problemaDoArquivo).filter((p): p is string => p !== null)
+    const validos = escolhidos
+      .filter((arquivo) => !problemaDoArquivo(arquivo))
+      .map((arquivo) => ({ id: crypto.randomUUID(), arquivo, previa: URL.createObjectURL(arquivo) }))
+    setErro(problemas.length ? problemas.join("\n") : null)
+    if (validos.length) setArquivos((atuais) => [...atuais, ...validos])
   }
 
-  const addFiles = useCallback((newFiles: File[]) => {
-    const remainingSlots = MAX_FILES - files.length
-    if (remainingSlots <= 0) {
-      setError(`Limite de ${MAX_FILES} imagens atingido.`)
-      return
-    }
-
-    const filesToAdd = newFiles.slice(0, remainingSlots)
-    const validFiles: UploadedFile[] = []
-    const errors: string[] = []
-
-    filesToAdd.forEach((file) => {
-      const err = validateFile(file)
-      if (err) {
-        errors.push(err)
-      } else {
-        validFiles.push({
-          id: Math.random().toString(36).substring(7),
-          file,
-          preview: URL.createObjectURL(file)
-        })
-      }
-    })
-
-    if (errors.length > 0) {
-      setError(errors.join('\n'))
-      setTimeout(() => setError(null), 5000)
-    }
-
-    if (validFiles.length > 0) {
-      setFiles((prev) => [...prev, ...validFiles])
-      setError(null)
-    }
-  }, [files.length])
-
-  const removeFile = (id: string) => {
-    setFiles(prev => {
-      const fileToRemove = prev.find(f => f.id === id)
-      if (fileToRemove) {
-        setTimeout(() => URL.revokeObjectURL(fileToRemove.preview), 1000)
-      }
-      return prev.filter(f => f.id !== id)
-    })
-
-    const indexToRemove = files.findIndex(f => f.id === id)
-    const newLength = files.length - 1
-
-    if (newLength === 0) {
-      setViewerOpen(false)
-      setCurrentImageIndex(0)
-    } else if (currentImageIndex >= newLength) {
-      setCurrentImageIndex(newLength - 1)
-    } else if (indexToRemove < currentImageIndex) {
-      setCurrentImageIndex(prev => prev - 1)
-    }
+  const remover = (id: string) => {
+    const restantes = arquivos.filter((a) => a.id !== id)
+    URL.revokeObjectURL(arquivos.find((a) => a.id === id)!.previa)
+    setArquivos(restantes)
+    setAmpliada((atual) => (atual === null || restantes.length === 0 ? null : Math.min(atual, restantes.length - 1)))
   }
 
-  // --- Drag and Drop ---
-  const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setIsDragOver(true) }
-  const handleDragLeave = (e: React.DragEvent) => { e.preventDefault(); setIsDragOver(false) }
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault()
-    setIsDragOver(false)
-    if (e.dataTransfer.files) addFiles(Array.from(e.dataTransfer.files))
-  }
-  const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) addFiles(Array.from(e.target.files))
+  const limpar = () => {
+    arquivos.forEach((a) => URL.revokeObjectURL(a.previa))
+    setArquivos([])
+    setErro(null)
   }
 
-  const openViewer = (index: number) => {
-    setCurrentImageIndex(index)
-    setViewerOpen(true)
-  }
-
-  const nextImage = useCallback(() => {
-    if (files.length <= 1) return
-    setCurrentImageIndex((prev) => (prev + 1) % files.length)
-  }, [files.length])
-
-  const prevImage = useCallback(() => {
-    if (files.length <= 1) return
-    setCurrentImageIndex((prev) => (prev - 1 + files.length) % files.length)
-  }, [files.length])
+  const navegar = useCallback(
+    (passo: number) => setAmpliada((atual) => (atual === null ? null : (atual + passo + arquivos.length) % arquivos.length)),
+    [arquivos.length]
+  )
 
   useEffect(() => {
-    if (!viewerOpen) return
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "ArrowRight") nextImage()
-      if (e.key === "ArrowLeft") prevImage()
-      if (e.key === "Escape") setViewerOpen(false)
+    if (ampliada === null) return
+    const aoTeclar = (evento: KeyboardEvent) => {
+      if (evento.key === "ArrowRight") navegar(1)
+      if (evento.key === "ArrowLeft") navegar(-1)
+      if (evento.key === "Escape") setAmpliada(null)
     }
-    window.addEventListener("keydown", handleKeyDown)
-    return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [viewerOpen, nextImage, prevImage])
+    window.addEventListener("keydown", aoTeclar)
+    return () => window.removeEventListener("keydown", aoTeclar)
+  }, [ampliada, navegar])
 
-  // --- Lógica de Upload ---
-  const handleContinue = async () => {
-    if (files.length === 0) return
-
-    setIsLoading(true)
-    setError(null)
-    setUploadProgress("Iniciando upload...")
-
+  const processar = async () => {
+    setErro(null)
     try {
-      const formData = new FormData()
-      files.forEach((f) => formData.append("files", f.file))
-
-      const uploadRes = await apiFetch(`/upload-batch/`, {
-        method: "POST",
-        body: formData,
-      })
-
-      if (!uploadRes.ok) throw new Error("Falha no upload das imagens")
-      const uploadData = await uploadRes.json()
-      const uploadedFiles: UploadResponse[] = uploadData.files
-
-      setUploadProgress("Processando ...")
-      const processRes = await apiFetch(`/process-images/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          images: uploadedFiles.map(img => ({
-            filename: img.filename,
-            storage_path: img.storage_path,
-            sha256: img.sha256,
-            timestamp: img.timestamp
-          }))
-        }),
-      })
-
-      if (!processRes.ok) throw new Error("Falha no processamento das imagens")
-      const processData = await processRes.json()
-
-      sessionStorage.setItem("processedImages", JSON.stringify(processData.results))
+      setEtapa("Enviando…")
+      const { files } = await enviarImagens(arquivos.map((a) => a.arquivo))
+      setEtapa("Processando…")
+      const { results } = await analisarImagens(files)
+      sessionStorage.setItem("processedImages", JSON.stringify(results))
       sessionStorage.removeItem("reviewOverrides")
-
-      setUploadProgress("Concluído!")
       router.push("/results")
-
-    } catch (err) {
-      console.error(err)
-      setError(err instanceof Error ? err.message : "Erro desconhecido")
-    } finally {
-      setIsLoading(false)
-      setUploadProgress("")
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "Erro desconhecido.")
+      setEtapa(null)
     }
   }
 
-  const currentFile = files[currentImageIndex]
+  const aoSoltar = (evento: DragEvent) => {
+    evento.preventDefault()
+    setArrastando(false)
+    adicionar(Array.from(evento.dataTransfer.files))
+  }
+
+  const atual = ampliada === null ? null : arquivos[ampliada]
+  const ocupado = etapa !== null
 
   return (
-    <div className="min-h-screen flex flex-col bg-background">
-
-      <main className="flex-1 p-4 md:p-8 flex items-center justify-center">
+    <div className="flex min-h-screen flex-col bg-background">
+      <main className="flex flex-1 items-center justify-center p-4 md:p-8">
         <Card
-          className={cn(
-            "w-full max-w-4xl transition-all duration-200 border-2",
-            isDragOver ? "border-primary bg-primary/5 scale-[1.01]" : "border-border"
-          )}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
+          className={cn("w-full max-w-4xl border-2 transition-all duration-200", arrastando ? "scale-[1.01] border-primary bg-primary/5" : "border-border")}
+          onDragOver={(e) => { e.preventDefault(); setArrastando(true) }}
+          onDragLeave={(e) => { e.preventDefault(); setArrastando(false) }}
+          onDrop={aoSoltar}
         >
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
-              <span>Upload de Imagens</span>
-              <span className="text-sm font-normal text-muted-foreground">
-                {files.length} / {MAX_FILES}
-              </span>
+              <span>Upload de imagens</span>
+              <span className="text-sm font-normal text-muted-foreground">{arquivos.length} / {MAXIMO_DE_ARQUIVOS}</span>
             </CardTitle>
           </CardHeader>
 
           <CardContent className="space-y-4">
-            {/* Área Principal */}
-            {files.length === 0 ? (
-              <div
-                className="flex flex-col items-center justify-center py-16 cursor-pointer border-2 border-dashed border-muted-foreground/25 rounded-lg hover:bg-muted/50 transition-colors"
-                onClick={() => document.getElementById("file-input")?.click()}
+            {arquivos.length === 0 ? (
+              <button
+                type="button"
+                onClick={() => seletor.current?.click()}
+                className="flex w-full flex-col items-center justify-center rounded-lg border-2 border-dashed border-muted-foreground/25 py-16 transition-colors hover:bg-muted/50"
               >
-                <div className="bg-primary/10 p-4 rounded-full mb-4">
-                  <Upload className="w-8 h-8 text-primary" />
-                </div>
-                <h3 className="text-lg font-semibold">Arraste imagens ou clique aqui</h3>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Apenas formato PNG (máx. 10MB)
-                </p>
-              </div>
+                <span className="mb-4 rounded-full bg-primary/10 p-4">
+                  <Upload className="size-8 text-primary" />
+                </span>
+                <span className="text-lg font-semibold">Arraste imagens ou clique aqui</span>
+                <span className="mt-1 text-sm text-muted-foreground">Apenas PNG (máx. 10 MB)</span>
+              </button>
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                {files.map((file, index) => (
-                  <div key={file.id} className="group relative aspect-square rounded-2xl overflow-hidden bg-muted border shadow-sm hover:shadow-md transition-all">
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
+                {arquivos.map((a, indice) => (
+                  <div key={a.id} className="group relative aspect-square overflow-hidden rounded-2xl border bg-muted shadow-sm transition-all hover:shadow-md">
                     <Image
-                      src={file.preview}
-                      alt="Preview"
+                      src={a.previa}
+                      alt={a.arquivo.name}
                       fill
-                      className="object-cover transition-transform duration-500 group-hover:scale-110 cursor-pointer"
-                      onClick={() => openViewer(index)}
                       unoptimized
+                      className="cursor-pointer object-cover transition-transform duration-500 group-hover:scale-110"
+                      onClick={() => setAmpliada(indice)}
                     />
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center gap-2 pointer-events-none">
-                      <ImageIcon className="text-white w-8 h-8 drop-shadow-md" />
+                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity duration-300 group-hover:opacity-100">
+                      <IconeDeImagem className="size-8 text-white drop-shadow-md" />
                     </div>
-
                     <Button
                       size="icon"
                       variant="destructive"
-                      className="absolute top-1 right-1 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        removeFile(file.id)
-                      }}
+                      aria-label={`Remover ${a.arquivo.name}`}
+                      className="absolute top-1 right-1 size-7 opacity-0 shadow-sm transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+                      onClick={() => remover(a.id)}
                     >
-                      <Trash2 className="w-3 h-3" />
+                      <Trash2 className="size-3" />
                     </Button>
                   </div>
                 ))}
 
-                {files.length < MAX_FILES && (
+                {arquivos.length < MAXIMO_DE_ARQUIVOS && (
                   <button
-                    onClick={() => document.getElementById("file-input")?.click()}
-                    className="aspect-square rounded-lg border-2 border-dashed border-muted-foreground/25 hover:border-primary hover:bg-primary/5 flex flex-col items-center justify-center transition-all group"
+                    type="button"
+                    onClick={() => seletor.current?.click()}
+                    className="group flex aspect-square flex-col items-center justify-center rounded-lg border-2 border-dashed border-muted-foreground/25 transition-all hover:border-primary hover:bg-primary/5"
                   >
-                    <Plus className="w-8 h-8 text-muted-foreground group-hover:text-primary mb-2" />
+                    <Plus className="mb-2 size-8 text-muted-foreground group-hover:text-primary" />
                     <span className="text-xs font-medium text-muted-foreground group-hover:text-primary">Adicionar</span>
                   </button>
                 )}
               </div>
             )}
 
-            {/* Input Escondido */}
             <input
-              id="file-input"
+              ref={seletor}
               type="file"
               multiple
               accept="image/png"
-              onChange={handleFileInput}
               className="hidden"
+              onChange={(e) => {
+                adicionar(Array.from(e.target.files ?? []))
+                e.target.value = ""
+              }}
             />
 
-            {error && (
-              <Alert variant="destructive" className="animate-in fade-in slide-in-from-top-2">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription className="whitespace-pre-line">{error}</AlertDescription>
+            {erro && (
+              <Alert variant="destructive">
+                <AlertCircle className="size-4" />
+                <AlertDescription className="whitespace-pre-line">{erro}</AlertDescription>
               </Alert>
             )}
           </CardContent>
 
-          <CardFooter className="flex justify-between border-t pt-6 bg-muted/20">
-            <Button
-              variant="ghost"
-              onClick={() => { setFiles([]); setError(null); }}
-              disabled={files.length === 0 || isLoading}
-            >
+          <CardFooter className="flex justify-between border-t bg-muted/20 pt-6">
+            <Button variant="ghost" onClick={limpar} disabled={arquivos.length === 0 || ocupado}>
               Limpar tudo
             </Button>
-
-            <Button
-              onClick={handleContinue}
-              disabled={files.length === 0 || isLoading}
-              className="min-w-[140px]"
-            >
-              {isLoading ? (
+            <Button onClick={processar} disabled={arquivos.length === 0 || ocupado} className="min-w-[140px]">
+              {ocupado ? (
                 <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  {uploadProgress}
+                  <Loader2 className="size-4 animate-spin" />
+                  {etapa}
                 </>
               ) : (
                 <>
-                  Processar Lote
-                  <ChevronRight className="ml-2 h-4 w-4" />
+                  Processar lote
+                  <ChevronRight className="size-4" />
                 </>
               )}
             </Button>
@@ -323,102 +212,43 @@ export default function HawkEyePage() {
         </Card>
       </main>
 
-      {/* --- Visualizador de Imagem --- */}
-      {viewerOpen && currentFile && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/95 backdrop-blur-md animate-in fade-in duration-300">
+      {atual && ampliada !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/95 backdrop-blur-md">
           <Button
             variant="ghost"
             size="icon"
-            className="absolute top-4 right-4 z-50 text-white/70 hover:text-white hover:bg-white/20 rounded-full"
-            onClick={() => setViewerOpen(false)}
+            aria-label="Fechar"
+            className="absolute top-4 right-4 z-50 rounded-full text-white/70 hover:bg-white/20 hover:text-white"
+            onClick={() => setAmpliada(null)}
           >
-            <X className="h-6 w-6" />
+            <X className="size-6" />
           </Button>
 
-          {/* Área da Imagem */}
-          <div className="relative w-full h-full max-w-7xl max-h-[100vh] sm:max-h-[90vh] p-4 flex flex-col items-center justify-center">
-
-            {/* Imagem */}
-            <div className="relative w-full h-full flex items-center justify-center">
-              <Image
-                key={currentFile.id}
-                src={currentFile.preview}
-                alt="Visualização Ampliada"
-                fill
-                className="object-contain drop-shadow-2xl"
-                unoptimized
-              />
+          <div className="relative flex size-full max-h-screen max-w-7xl flex-col items-center justify-center p-4 sm:max-h-[90vh]">
+            <div className="relative flex size-full items-center justify-center">
+              <Image key={atual.id} src={atual.previa} alt={atual.arquivo.name} fill unoptimized className="object-contain drop-shadow-2xl" />
             </div>
 
-            {/* Controle Inferior Responsivo */}
-            <div className="absolute bottom-6 sm:bottom-10 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-background/90 p-3 px-6 rounded-full border border-white/10 shadow-2xl z-50 backdrop-blur-xl">
-
-              {/* Botão Anterior (Mobile friendly place) */}
-              {files.length > 1 && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-10 w-10 sm:h-12 sm:w-12 rounded-full hover:bg-muted"
-                  onClick={prevImage}
-                >
-                  <ChevronLeft className="h-6 w-6 sm:h-7 sm:w-7" />
+            <div className="absolute bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-4 rounded-full border border-white/10 bg-background/90 p-3 px-6 shadow-2xl backdrop-blur-xl sm:bottom-10">
+              {arquivos.length > 1 && (
+                <Button variant="ghost" size="icon" aria-label="Anterior" className="size-10 rounded-full sm:size-12" onClick={() => navegar(-1)}>
+                  <ChevronLeft className="size-6" />
                 </Button>
               )}
-
-              <span className="text-sm font-semibold px-2 min-w-[60px] text-center">
-                {currentImageIndex + 1} / {files.length}
-              </span>
-
-              {/* Botão Próximo (Mobile friendly place) */}
-              {files.length > 1 && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-10 w-10 sm:h-12 sm:w-12 rounded-full hover:bg-muted"
-                  onClick={nextImage}
-                >
-                  <ChevronRight className="h-6 w-6 sm:h-7 sm:w-7" />
+              <span className="min-w-[60px] px-2 text-center text-sm font-semibold">{ampliada + 1} / {arquivos.length}</span>
+              {arquivos.length > 1 && (
+                <Button variant="ghost" size="icon" aria-label="Próxima" className="size-10 rounded-full sm:size-12" onClick={() => navegar(1)}>
+                  <ChevronRight className="size-6" />
                 </Button>
               )}
-
-              <div className="h-6 w-px bg-border mx-1" />
-
-              <Button
-                variant="destructive"
-                size="icon"
-                className="h-10 w-10 sm:h-12 sm:w-12 rounded-full shadow-md hover:scale-105 transition-transform"
-                onClick={() => removeFile(currentFile.id)}
-              >
-                <Trash2 className="h-4 w-4 sm:h-5 sm:w-5" />
+              <div className="mx-1 h-6 w-px bg-border" />
+              <Button variant="destructive" size="icon" aria-label="Remover imagem" className="size-10 rounded-full shadow-md sm:size-12" onClick={() => remover(atual.id)}>
+                <Trash2 className="size-4 sm:size-5" />
               </Button>
             </div>
-
           </div>
-
-          {/* Navegação Lateral Desktop - Opcional e oculta no mobile */}
-          {files.length > 1 && (
-            <>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="hidden sm:flex absolute left-6 z-50 h-16 w-16 rounded-full bg-black/20 text-white/70 hover:text-white hover:bg-black/50 transition-colors"
-                onClick={prevImage}
-              >
-                <ChevronLeft className="h-8 w-8" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="hidden sm:flex absolute right-6 z-50 h-16 w-16 rounded-full bg-black/20 text-white/70 hover:text-white hover:bg-black/50 transition-colors"
-                onClick={nextImage}
-              >
-                <ChevronRight className="h-8 w-8" />
-              </Button>
-            </>
-          )}
         </div>
       )}
-
     </div>
   )
 }

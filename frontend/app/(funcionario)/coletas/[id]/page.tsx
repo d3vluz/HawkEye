@@ -1,10 +1,12 @@
 "use client"
 
-import { use } from "react"
-import { BatchDetail } from "@/components/batch-detail"
-import { getMyCollectionDetails } from "@/lib/api-client"
+// Detalhe de um lote registrado pelo próprio funcionário.
 
-export default function MyCollectionDetailPage({ params }: { params: Promise<{ id: string }> }) {
+import { use } from "react"
+import { DetalheDoLote } from "@/components/detalhe-do-lote"
+import { detalharMinhaColeta } from "@/lib/api"
+
+export default function PaginaDaColeta({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
-  return <BatchDetail id={id} load={getMyCollectionDetails} crumbs={[{ label: "Inspeção", href: "/inspecao" }, { label: "Minhas coletas", href: "/coletas" }]} />
+  return <DetalheDoLote id={id} carregar={detalharMinhaColeta} trilha={[{ rotulo: "Inspeção", href: "/inspecao" }, { rotulo: "Minhas coletas", href: "/coletas" }]} />
 }

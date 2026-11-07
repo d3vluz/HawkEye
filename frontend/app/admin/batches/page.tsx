@@ -1,291 +1,110 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
-import { Card, CardContent } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { 
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import { Button } from "@/components/ui/button"
-import { Search, Eye, ChevronRight, Loader2, Trash2 } from "lucide-react"
-import { ConfirmDialog } from "@/components/confirm-dialog"
+// Todos os lotes registrados, com filtro por linha e exclusão.
+
+import { useEffect, useState } from "react"
+import { Loader2 } from "lucide-react"
+import { Cabecalho } from "@/components/cabecalho"
+import { DialogoDeConfirmacao } from "@/components/dialogo-de-confirmacao"
+import { TabelaDeLotes } from "@/components/tabela-de-lotes"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { getBatches, deleteBatch, getInspectionSettings, getUnits, type Batch, type Unit } from "@/lib/api-client"
+import { apagarLote, lerCriterios, listarLinhas, listarLotes } from "@/lib/api"
+import type { Linha, Lote } from "@/types"
 
-const ALL_UNITS = "all"
+const TODAS = "todas"
 
-export default function LotesPage() {
-  const router = useRouter()
-  const [searchTerm, setSearchTerm] = useState("")
-  const [batches, setBatches] = useState<Batch[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [deleteTarget, setDeleteTarget] = useState<Batch | null>(null)
-  const [deleting, setDeleting] = useState(false)
-  const [deleteError, setDeleteError] = useState<string | null>(null)
-  const [units, setUnits] = useState<Unit[]>([])
-  const [unitFilter, setUnitFilter] = useState(ALL_UNITS)
-  const [qualityTarget, setQualityTarget] = useState<number | null>(null)
+export default function PaginaDeLotes() {
+  const [lotes, setLotes] = useState<Lote[] | null>(null)
+  const [erro, setErro] = useState<string | null>(null)
+  const [linhas, setLinhas] = useState<Linha[]>([])
+  const [linha, setLinha] = useState(TODAS)
+  const [meta, setMeta] = useState<number | null>(null)
+  const [excluindo, setExcluindo] = useState<Lote | null>(null)
+  const [enviando, setEnviando] = useState(false)
+  const [erroAoExcluir, setErroAoExcluir] = useState<string | null>(null)
 
   useEffect(() => {
-    getUnits().then(setUnits).catch(() => setUnits([]))
-    getInspectionSettings().then((s) => setQualityTarget(s.minQualityScore)).catch(() => setQualityTarget(null))
+    listarLinhas().then(setLinhas).catch(() => setLinhas([]))
+    lerCriterios().then((c) => setMeta(c.minQualityScore)).catch(() => setMeta(null))
   }, [])
 
   useEffect(() => {
-    loadBatches(unitFilter)
-  }, [unitFilter])
+    listarLotes(linha === TODAS ? undefined : linha)
+      .then((lista) => { setLotes(lista); setErro(null) })
+      .catch((e: Error) => { setErro(e.message); setLotes((atuais) => atuais ?? []) })
+  }, [linha])
 
-  const loadBatches = async (unit: string) => {
+  const excluir = async () => {
+    if (!excluindo) return
+    setEnviando(true)
     try {
-      setLoading(true)
-      const { batches: data } = await getBatches(unit === ALL_UNITS ? undefined : unit)
-      setBatches(data)
-      setError(null)
-    } catch (err) {
-      console.error('Erro ao carregar lotes:', err)
-      setError(err instanceof Error ? err.message : "Erro ao carregar lotes")
+      await apagarLote(excluindo.id)
+      setLotes((atuais) => atuais?.filter((l) => l.id !== excluindo.id) ?? null)
+      setExcluindo(null)
+    } catch {
+      setErroAoExcluir("Não foi possível excluir o lote. Tente novamente.")
     } finally {
-      setLoading(false)
+      setEnviando(false)
     }
   }
 
-  const handleDelete = async () => {
-    if (!deleteTarget) return
-
-    try {
-      setDeleting(true)
-      await deleteBatch(deleteTarget.id)
-      setBatches(batches.filter(b => b.id !== deleteTarget.id))
-      setDeleteTarget(null)
-    } catch (err) {
-      console.error('Erro ao excluir lote:', err)
-      setDeleteError('Não foi possível excluir o lote. Tente novamente.')
-    } finally {
-      setDeleting(false)
-    }
-  }
-
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString)
-    return date.toLocaleDateString('pt-BR', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit'
-    })
-  }
-
-  const formatQualityScore = (score: number | null) => {
-    if (score === null) return '-'
-    return `${score.toFixed(1)}%`
-  }
-
-  const filteredBatches = batches.filter(batch => {
-    const matchesSearch = 
-      batch.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (batch.description?.toLowerCase().includes(searchTerm.toLowerCase()) || false) ||
-      (batch.author?.name?.toLowerCase().includes(searchTerm.toLowerCase()) || false) ||
-      (batch.author?.matricula.toLowerCase().includes(searchTerm.toLowerCase()) || false)
-    return matchesSearch
-  })
-
-  const qualityClass = (score: number) => {
-    if (qualityTarget === null) return score >= 80 ? 'text-success-emphasis' : score >= 60 ? 'text-warning-emphasis' : 'text-danger-emphasis'
-    return score >= qualityTarget ? 'text-success-emphasis' : 'text-danger-emphasis'
-  }
-
-  if (loading && batches.length === 0) {
+  if (!lotes) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="h-12 w-12 animate-spin text-signal mx-auto mb-4" />
-          <p className="text-muted-foreground font-medium">Carregando lotes...</p>
-        </div>
+      <div className="flex min-h-screen items-center justify-center">
+        <Loader2 className="size-12 animate-spin text-signal" aria-label="Carregando lotes" />
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-background p-4 sm:p-6 lg:p-8">
-      {/* Header com Breadcrumb */}
-      <div className="mb-8">
-        <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground mb-3 tracking-wider">
-          <span>ADMIN</span>
-          <ChevronRight className="h-3 w-3 text-muted-foreground"/>
-          <span className="text-foreground">LOTES</span>
-        </div>
-        <h1 className="text-3xl font-bold text-foreground mb-2">Gerenciamento de Lotes</h1>
-        <p className="text-muted-foreground text-sm">Visualize e gerencie todos os lotes de imagens processados pelo sistema</p>
-      </div>
+    <div className="space-y-8 p-4 sm:p-6 lg:p-8">
+      <Cabecalho
+        trilha={[{ rotulo: "Admin", href: "/admin" }, { rotulo: "Lotes" }]}
+        titulo="Lotes"
+        descricao="Consulte e gerencie os lotes registrados pelas linhas."
+      />
 
-      {error && (
-        <div className="mb-6 p-4 bg-danger/10 border border-danger/30 rounded-lg text-danger-emphasis">
-          <p className="font-medium">Erro ao carregar dados</p>
-          <p className="text-sm">{error}</p>
+      {erro && (
+        <div role="alert" className="rounded-lg border border-danger/30 bg-danger/10 p-4 text-danger-emphasis">
+          <p className="font-medium">Erro ao carregar os lotes</p>
+          <p className="text-sm">{erro}</p>
         </div>
       )}
 
-      {/* Table Card */}
-      <Card className="border border-border shadow-sm">
-        <CardContent className="p-0">
-          {/* Table Header com Search */}
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 px-6 py-4 border-b border-border">
-            <div className="flex items-center gap-2">
-              <h2 className="text-base font-semibold text-foreground">
-                Todos os Lotes
-                <span className="ml-2 text-sm font-normal text-muted-foreground">
-                  ({filteredBatches.length})
-                </span>
-              </h2>
-            </div>
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-              <Select value={unitFilter} onValueChange={setUnitFilter}>
-                <SelectTrigger className="h-9 w-full sm:w-44" aria-label="Filtrar por linha">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={ALL_UNITS}>Todas as linhas</SelectItem>
-                  {units.map((u) => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-              {/* Search */}
-              <div className="relative w-full sm:w-64">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  type="text"
-                  placeholder="Buscar lotes..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10 h-9 border-input focus:border-ring focus:ring-1 focus:ring-ring"
-                />
-              </div>
-            </div>
-          </div>
+      <TabelaDeLotes
+        titulo="Todos os lotes"
+        lotes={lotes}
+        endereco={(lote) => `/admin/batches/${lote.id}`}
+        meta={meta}
+        mostrarAutor
+        aoExcluir={(lote) => { setErroAoExcluir(null); setExcluindo(lote) }}
+        filtros={
+          <Select value={linha} onValueChange={setLinha}>
+            <SelectTrigger className="h-9 w-full sm:w-44" aria-label="Filtrar por linha">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={TODAS}>Todas as linhas</SelectItem>
+              {linhas.map((l) => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        }
+        vazio={{
+          titulo: "Nenhum lote encontrado",
+          texto: linha !== TODAS ? "Nenhum lote registrado nesta linha." : "Os lotes aparecem aqui depois de registrados na revisão.",
+        }}
+      />
 
-          {/* Table Wrapper com Scroll Horizontal */}
-          <div className="overflow-x-auto">
-            <Table className="min-w-[1190px]">
-              <TableHeader>
-                <TableRow className="hover:bg-transparent border-b border-border">
-                  <TableHead className="font-semibold text-foreground text-xs w-[200px] pl-6">Código</TableHead>
-                  <TableHead className="font-semibold text-foreground text-xs w-[240px]">Descrição</TableHead>
-                  <TableHead className="font-semibold text-foreground text-xs w-[180px]">Coletado por</TableHead>
-                  <TableHead className="font-semibold text-foreground text-xs w-[110px]">Linha</TableHead>
-                  <TableHead className="font-semibold text-foreground text-xs w-[100px] text-center">Imagens</TableHead>
-                  <TableHead className="font-semibold text-foreground text-xs w-[100px] text-center">Defeitos</TableHead>
-                  <TableHead className="font-semibold text-foreground text-xs w-[110px] text-center">Qualidade</TableHead>
-                  <TableHead className="font-semibold text-foreground text-xs w-[120px] text-center">Data</TableHead>
-                  <TableHead className="font-semibold text-foreground text-xs w-[120px] text-center pr-6">Ações</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredBatches.map((batch) => (
-                  <TableRow 
-                    key={batch.id} 
-                    className="hover:bg-muted border-b border-border last:border-0"
-                  >
-                    <TableCell className="font-medium text-sm text-foreground pl-6">
-                      {batch.name}
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {batch.description || '-'}
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      {batch.author ? (
-                        <div>
-                          <p className="font-medium text-foreground">{batch.author.name ?? "Membro removido"}</p>
-                          <p className="text-xs text-muted-foreground">Matrícula {batch.author.matricula}</p>
-                        </div>
-                      ) : (
-                        <span className="text-muted-foreground">-</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-sm text-foreground">
-                      {batch.unit?.name ?? <span className="text-muted-foreground">Sem linha</span>}
-                    </TableCell>
-                    <TableCell className="text-sm text-foreground text-center">
-                      <div className="flex flex-col items-center">
-                        <span className="font-semibold tabular-nums">{batch.total_captures}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-sm text-center">
-                      <div className="flex flex-col items-center">
-                        <span className="font-semibold tabular-nums">{batch.total_defects}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-sm text-center">
-                      <div className="flex flex-col items-center">
-                        <span className={`font-semibold tabular-nums ${qualityClass(batch.quality_score || 0)}`}>
-                          {formatQualityScore(batch.quality_score)}
-                        </span>
-                        {qualityTarget !== null && (batch.quality_score || 0) < qualityTarget && (
-                          <span className="text-[11px] text-muted-foreground">abaixo da meta</span>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-sm text-foreground text-center">
-                      {formatDate(batch.created_at)}
-                    </TableCell>
-                    <TableCell className="text-center pr-6">
-                      <div className="flex items-center justify-center gap-2">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-8 w-8 p-0 hover:bg-accent"
-                          onClick={() => router.push(`/admin/batches/${batch.id}`)}
-                          title="Ver detalhes"
-                        >
-                          <Eye className="h-4 w-4 text-signal" />
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-8 w-8 p-0 hover:bg-danger/10"
-                          onClick={() => { setDeleteError(null); setDeleteTarget(batch) }}
-                          title="Excluir lote"
-                          aria-label={`Excluir ${batch.name}`}
-                        >
-                          <Trash2 className="h-4 w-4 text-danger-emphasis" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-
-          {/* Empty State */}
-          {filteredBatches.length === 0 && !loading && (
-            <div className="flex flex-col items-center justify-center py-16 px-4">
-              <Search className="h-12 w-12 text-muted-foreground mb-4" />
-              <h3 className="text-base font-semibold text-foreground mb-2">
-                Nenhum lote encontrado
-              </h3>
-              <p className="text-sm text-muted-foreground text-center">
-                {searchTerm || unitFilter !== ALL_UNITS ? 'Tente ajustar a busca ou a linha' : 'Processe alguns lotes para começar'}
-              </p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <ConfirmDialog
-        open={deleteTarget !== null}
-        title={`Excluir o lote ${deleteTarget?.name ?? ""}?`}
-        description="As imagens são apagadas do armazenamento e o lote sai das métricas. Esta ação não pode ser desfeita."
-        confirmLabel="Excluir lote"
-        pendingLabel="Excluindo..."
-        pending={deleting}
-        error={deleteError}
-        onConfirm={handleDelete}
-        onCancel={() => setDeleteTarget(null)}
+      <DialogoDeConfirmacao
+        aberto={excluindo !== null}
+        titulo={`Excluir o lote ${excluindo?.name ?? ""}?`}
+        descricao="As imagens são apagadas do armazenamento e o lote sai das métricas. Esta ação não pode ser desfeita."
+        confirmar="Excluir lote"
+        confirmando="Excluindo..."
+        enviando={enviando}
+        erro={erroAoExcluir}
+        aoConfirmar={excluir}
+        aoCancelar={() => setExcluindo(null)}
       />
     </div>
   )

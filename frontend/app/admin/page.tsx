@@ -1,118 +1,108 @@
 "use client"
 
+// Dashboard do admin: indicadores do período, tendência, defeitos, linhas, operadores e lotes recentes.
+
 import { useEffect, useState } from "react"
-import { ChevronRight, Package } from "lucide-react"
+import { Loader2, Package } from "lucide-react"
+import { Cabecalho } from "@/components/cabecalho"
+import { DefeitosPorTipo } from "@/components/dashboard/defeitos-por-tipo"
+import { Indicadores } from "@/components/dashboard/indicadores"
+import { LinhasDeProducao } from "@/components/dashboard/linhas-de-producao"
+import { LotesRecentes } from "@/components/dashboard/lotes-recentes"
+import { Operadores } from "@/components/dashboard/operadores"
+import { QualidadePorDia } from "@/components/dashboard/qualidade-por-dia"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { KpiGrid } from "@/components/dashboard/kpi-grid"
-import { QualityTrend } from "@/components/dashboard/quality-trend"
-import { DefectsByType } from "@/components/dashboard/defects-by-type"
-import { UnitsComparison } from "@/components/dashboard/units-comparison"
-import { Operators } from "@/components/dashboard/operators"
-import { RecentBatches } from "@/components/dashboard/recent-batches"
-import { number, percent } from "@/components/dashboard/format"
-import { getDashboardMetrics, getUnits, type DashboardMetrics, type Unit } from "@/lib/api-client"
+import { listarLinhas, metricasDoDashboard } from "@/lib/api"
+import { percentual, plural } from "@/lib/formato"
+import type { Linha, MetricasDoDashboard } from "@/types"
 
-const ALL_UNITS = "all"
-const REFRESH_MS = 30_000
+const TODAS = "todas"
+const ATUALIZAR_A_CADA_MS = 30_000
 
-export default function DashboardPage() {
-  const [data, setData] = useState<DashboardMetrics | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [units, setUnits] = useState<Unit[]>([])
-  const [unitFilter, setUnitFilter] = useState(ALL_UNITS)
+export default function PaginaDoDashboard() {
+  const [metricas, setMetricas] = useState<MetricasDoDashboard | null>(null)
+  const [erro, setErro] = useState<string | null>(null)
+  const [linhas, setLinhas] = useState<Linha[]>([])
+  const [filtro, setFiltro] = useState(TODAS)
+  const linha = filtro === TODAS ? undefined : filtro
 
   useEffect(() => {
-    getUnits().then(setUnits).catch(() => setUnits([]))
+    listarLinhas().then(setLinhas).catch(() => setLinhas([]))
   }, [])
 
   useEffect(() => {
-    const load = async () => {
-      try {
-        setData(await getDashboardMetrics(unitFilter === ALL_UNITS ? undefined : unitFilter))
-        setError(null)
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Erro ao carregar métricas")
-      }
-    }
-    load()
-    const interval = setInterval(load, REFRESH_MS)
-    return () => clearInterval(interval)
-  }, [unitFilter])
-
-  const selectedUnit = unitFilter === ALL_UNITS ? undefined : unitFilter
+    const carregar = () =>
+      metricasDoDashboard(linha)
+        .then((m) => { setMetricas(m); setErro(null) })
+        .catch((e: Error) => setErro(e.message))
+    carregar()
+    const intervalo = setInterval(carregar, ATUALIZAR_A_CADA_MS)
+    return () => clearInterval(intervalo)
+  }, [linha])
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8">
-      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <div className="mb-3 flex items-center gap-2 text-xs font-medium tracking-wider text-muted-foreground">
-            <span>ADMIN</span>
-            <ChevronRight className="h-3 w-3" />
-            <span className="text-foreground">DASHBOARD</span>
-          </div>
-          <h1 className="mb-2 text-3xl font-bold text-foreground">Dashboard</h1>
-          <p className="text-sm text-muted-foreground">
-            {data
-              ? `Últimos ${data.periodDays} dias comparados com os ${data.periodDays} anteriores. Desde o início: ${number(data.totals.batches)} lotes, ${number(data.totals.captures)} capturas e ${percent(data.totals.approvalRate)} de aprovação.`
-              : "Qualidade das inspeções aprovadas."}
-          </p>
-        </div>
-        <Select value={unitFilter} onValueChange={setUnitFilter}>
-          <SelectTrigger className="h-9 w-full shrink-0 sm:w-48" aria-label="Filtrar por linha">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL_UNITS}>Todas as linhas</SelectItem>
-            {units.map((u) => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}
-          </SelectContent>
-        </Select>
-      </div>
+    <div className="space-y-8 p-4 sm:p-6 lg:p-8">
+      <Cabecalho
+        trilha={[{ rotulo: "Admin" }, { rotulo: "Dashboard" }]}
+        titulo="Dashboard"
+        descricao={
+          metricas
+            ? `Últimos ${metricas.periodDays} dias comparados com os ${metricas.periodDays} anteriores. Desde o início: ${plural(metricas.totals.batches, "lote", "lotes")}, ${plural(metricas.totals.captures, "captura", "capturas")} e ${percentual(metricas.totals.approvalRate)} de aprovação.`
+            : "Qualidade das inspeções registradas."
+        }
+        acoes={
+          <Select value={filtro} onValueChange={setFiltro}>
+            <SelectTrigger className="h-9 w-48" aria-label="Filtrar por linha">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={TODAS}>Todas as linhas</SelectItem>
+              {linhas.map((l) => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        }
+      />
 
-      {error && (
-        <div role="alert" className="mb-6 rounded-lg border border-danger/30 bg-danger/10 p-4 text-danger-emphasis">
+      {erro && (
+        <div role="alert" className="rounded-lg border border-danger/30 bg-danger/10 p-4 text-danger-emphasis">
           <p className="font-medium">Erro ao carregar dados</p>
-          <p className="text-sm">{error}</p>
+          <p className="text-sm">{erro}</p>
         </div>
       )}
 
-      {!data && !error && (
+      {!metricas && !erro && (
         <div className="flex min-h-[50vh] items-center justify-center">
-          <div className="text-center">
-            <div className="mx-auto mb-4 h-12 w-12 animate-spin rounded-full border-4 border-border border-t-signal" />
-            <p className="font-medium text-muted-foreground">Carregando dashboard...</p>
-          </div>
+          <Loader2 className="size-12 animate-spin text-signal" aria-label="Carregando dashboard" />
         </div>
       )}
 
-      {data && data.totals.batches === 0 && (
+      {metricas && metricas.totals.batches === 0 && (
         <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-card px-6 py-16 text-center">
-          <Package className="h-10 w-10 text-muted-foreground" />
-          <p className="mt-4 font-medium text-foreground">
-            {selectedUnit ? "Esta linha ainda não tem lotes aprovados" : "Nenhum lote aprovado ainda"}
-          </p>
+          <Package className="size-10 text-muted-foreground" />
+          <p className="mt-4 font-medium text-foreground">{linha ? "Esta linha ainda não tem lotes registrados" : "Nenhum lote registrado ainda"}</p>
           <p className="mt-1 max-w-sm text-sm text-pretty text-muted-foreground">
-            As métricas aparecem quando um funcionário aprova o primeiro lote na inspeção.
+            As métricas aparecem quando um funcionário registra o primeiro lote na inspeção.
           </p>
-          {selectedUnit && (
-            <button onClick={() => setUnitFilter(ALL_UNITS)} className="mt-4 text-sm font-medium text-primary-emphasis hover:underline">
+          {linha && (
+            <button onClick={() => setFiltro(TODAS)} className="mt-4 text-sm font-medium text-primary-emphasis hover:underline">
               Ver todas as linhas
             </button>
           )}
         </div>
       )}
 
-      {data && data.totals.batches > 0 && (
+      {metricas && metricas.totals.batches > 0 && (
         <div className="space-y-6">
-          <KpiGrid data={data} />
+          <Indicadores metricas={metricas} />
           <div className="grid gap-6 xl:grid-cols-3">
-            <QualityTrend data={data} />
-            <DefectsByType data={data} />
+            <QualidadePorDia metricas={metricas} />
+            <DefeitosPorTipo metricas={metricas} />
           </div>
           <div className="grid gap-6 lg:grid-cols-2">
-            <UnitsComparison data={data} selectedUnitId={selectedUnit} />
-            <Operators data={data} />
+            <LinhasDeProducao metricas={metricas} linhaSelecionada={linha} />
+            <Operadores metricas={metricas} />
           </div>
-          <RecentBatches data={data} />
+          <LotesRecentes metricas={metricas} />
         </div>
       )}
     </div>

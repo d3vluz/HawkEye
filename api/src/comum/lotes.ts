@@ -15,3 +15,31 @@ export async function nomesDosAutores(banco: BancoService, matriculas: Array<str
 export function autor(matricula: string | null, nomes: Map<string, string>) {
   return matricula ? { matricula, name: nomes.get(matricula) ?? null } : null;
 }
+
+interface LoteDoBanco {
+  id: string;
+  name: string;
+  description: string | null;
+  createdAt: Date;
+  authorMatricula: string | null;
+  totalCaptures: number;
+  validCaptures: number;
+  unit: { id: string; name: string } | null;
+}
+
+// Formato único de lote nas listas (lotes, coletas e dashboard), para o frontend ter um só tipo.
+export function loteResumido(lote: LoteDoBanco, nomes: Map<string, string>, defeitos: number) {
+  return {
+    id: lote.id,
+    name: lote.name,
+    description: lote.description,
+    created_at: lote.createdAt.toISOString(),
+    author: autor(lote.authorMatricula, nomes),
+    unit: lote.unit,
+    total_captures: lote.totalCaptures,
+    valid_captures: lote.validCaptures,
+    invalid_captures: lote.totalCaptures - lote.validCaptures,
+    total_defects: defeitos,
+    quality_score: percentual(lote.validCaptures, lote.totalCaptures) ?? 0,
+  };
+}

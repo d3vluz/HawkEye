@@ -1,6 +1,8 @@
-import type { ReactNode } from "react"
-import { AppShell } from "@/components/app-shell"
+// Área do funcionário: inspeção, revisão e coletas usam o menu lateral do funcionário.
 
-export default function EmployeeLayout({ children }: { children: ReactNode }) {
-  return <AppShell role="EMPLOYEE">{children}</AppShell>
+import type { ReactNode } from "react"
+import { LayoutDoApp } from "@/components/layout-do-app"
+
+export default function LayoutDoFuncionario({ children }: { children: ReactNode }) {
+  return <LayoutDoApp perfil="EMPLOYEE">{children}</LayoutDoApp>
 }

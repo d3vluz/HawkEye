@@ -1,6 +1,8 @@
-import type { ReactNode } from "react"
-import { AppShell } from "@/components/app-shell"
+// Área do admin: todas as páginas usam o menu lateral com as opções de administração.
 
-export default function AdminLayout({ children }: { children: ReactNode }) {
-  return <AppShell role="ADMIN">{children}</AppShell>
+import type { ReactNode } from "react"
+import { LayoutDoApp } from "@/components/layout-do-app"
+
+export default function LayoutDoAdmin({ children }: { children: ReactNode }) {
+  return <LayoutDoApp perfil="ADMIN">{children}</LayoutDoApp>
 }

@@ -1,90 +1,96 @@
 "use client"
 
+// Equipe: membros com acesso ao HawkEye, cadastro, edição, senha temporária, perfil e remoção.
+
 import { useEffect, useMemo, useState, type ReactNode } from "react"
-import {
-  ChevronRight, Users, CheckCircle2, Building2,
-  Search, Plus, Trash2, MapPin, MoreHorizontal, KeyRound, ShieldCheck, Pencil,
-  type LucideIcon,
-} from "lucide-react"
-import { ConfirmDialog } from "@/components/confirm-dialog"
+import { Building2, CheckCircle2, KeyRound, Loader2, MapPin, MoreHorizontal, Pencil, Plus, Search, ShieldCheck, Trash2, Users, type LucideIcon } from "lucide-react"
+import { Cabecalho } from "@/components/cabecalho"
+import { DialogoDeConfirmacao } from "@/components/dialogo-de-confirmacao"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet"
-import { cn, formatLastAccess, isToday } from "@/lib/utils"
-import { formatPhone, isCompletePhone, phoneDigits } from "@/lib/phone"
+import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import {
-  avatarUrl, createMember, deleteMember, getMe, getMembers, getTeamOverview, getUnits,
-  resetMemberPassword, updateMember, updateMemberRole,
-  type Member, type Unit, type TeamOverview,
-} from "@/lib/api-client"
+  alterarMembro, criarMembro, listarLinhas, listarMembros, minhaConta, redefinirSenha, removerMembro, resumoDaEquipe, urlDoAvatar,
+} from "@/lib/api"
+import { acessouHoje, digitosDoTelefone, iniciais, telefone, telefoneCompleto, ultimoAcesso } from "@/lib/formato"
+import { cn } from "@/lib/utils"
+import type { Linha, Membro, ResumoDaEquipe } from "@/types"
 
-const MIN_PASSWORD_LENGTH = 8
+const TAMANHO_MINIMO_DA_SENHA = 8
+const CABECALHO = "px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground"
+const CELULA = "px-6 py-4 text-left align-middle"
 
-function initials(name: string): string {
-  return name.trim().split(/\s+/).map((n) => n[0]).slice(0, 2).join("").toUpperCase()
+interface Formulario {
+  nome: string
+  matricula: string
+  telefone: string
+  email: string
+  senha: string
+  todasAsLinhas: boolean
+  linhas: string[]
 }
 
-function identity({ matricula, email }: Pick<Member, "matricula" | "email">): string {
-  return [matricula && `Matrícula ${matricula}`, email].filter(Boolean).join(" · ") || "—"
-}
+const formularioDe = (membro: Membro | null): Formulario => ({
+  nome: membro?.name ?? "",
+  matricula: membro?.matricula ?? "",
+  telefone: telefone(membro?.phone),
+  email: membro?.email ?? "",
+  senha: "",
+  todasAsLinhas: true,
+  linhas: [],
+})
 
-function matches(query: string, ...values: Array<string | null>): boolean {
-  return values.some((value) => value?.toLowerCase().includes(query))
-}
+const identificacao = ({ matricula, email }: Membro) => [matricula && `Matrícula ${matricula}`, email].filter(Boolean).join(" · ") || "—"
 
-function Person({ member }: { member: Member }) {
+function Pessoa({ membro }: { membro: Membro }) {
   return (
-    <div className="flex items-center gap-3 min-w-0">
-      <Avatar className="h-10 w-10 shrink-0">
-        {member.githubUsername && <AvatarImage src={avatarUrl(member.githubUsername)} alt="" />}
-        <AvatarFallback className="bg-muted text-muted-foreground text-xs font-semibold">{initials(member.name)}</AvatarFallback>
+    <div className="flex min-w-0 items-center gap-3">
+      <Avatar className="size-10 shrink-0">
+        {membro.githubUsername && <AvatarImage src={urlDoAvatar(membro.githubUsername)} alt="" />}
+        <AvatarFallback className="bg-muted text-xs font-semibold text-muted-foreground">{iniciais(membro.name)}</AvatarFallback>
       </Avatar>
       <div className="min-w-0">
-        <div className="flex items-center gap-2 min-w-0">
-          <p className="font-semibold truncate text-foreground">{member.name}</p>
-          {member.role === "ADMIN" && <Badge variant="outline" className="font-normal text-muted-foreground">Admin</Badge>}
+        <div className="flex min-w-0 items-center gap-2">
+          <p className="truncate font-semibold text-foreground">{membro.name}</p>
+          {membro.role === "ADMIN" && <Badge variant="outline" className="font-normal text-muted-foreground">Admin</Badge>}
         </div>
-        <p className="text-xs text-muted-foreground truncate">{identity(member)}</p>
+        <p className="truncate text-xs text-muted-foreground">{identificacao(membro)}</p>
       </div>
     </div>
   )
 }
 
-function unitsLabel(allUnits: boolean, units: Unit[]) {
-  if (allUnits) {
+function LinhasDoMembro({ membro }: { membro: Membro }) {
+  if (membro.allUnits) {
     return (
       <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
-        <MapPin className="h-3.5 w-3.5 shrink-0" /> Todas as unidades
+        <MapPin className="size-3.5 shrink-0" /> Todas as linhas
       </span>
     )
   }
-  if (!units.length) return <span className="text-sm text-muted-foreground">—</span>
+  if (!membro.units.length) return <span className="text-sm text-muted-foreground">—</span>
   return (
     <div className="flex flex-wrap gap-1">
-      {units.map((u) => (
-        <Badge key={u.id} variant="outline" className="font-normal">{u.name}</Badge>
-      ))}
+      {membro.units.map((l) => <Badge key={l.id} variant="outline" className="font-normal">{l.name}</Badge>)}
     </div>
   )
 }
 
-function RowMenu({ open, onToggle, children }: { open: boolean; onToggle: () => void; children: ReactNode }) {
+function MenuDaLinha({ aberto, aoAlternar, children }: { aberto: boolean; aoAlternar: () => void; children: ReactNode }) {
   return (
     <div className="relative flex justify-end">
       <button
-        onClick={(e) => { e.stopPropagation(); onToggle() }}
+        onClick={(e) => { e.stopPropagation(); aoAlternar() }}
         className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         aria-label="Ações"
+        aria-expanded={aberto}
       >
-        <MoreHorizontal className="h-4 w-4" />
+        <MoreHorizontal className="size-4" />
       </button>
-      {open && (
-        <div
-          onClick={(e) => e.stopPropagation()}
-          className="absolute right-0 top-full z-20 mt-1 w-max rounded-lg border border-border bg-popover p-1 shadow-xl"
-        >
+      {aberto && (
+        <div onClick={(e) => e.stopPropagation()} className="absolute top-full right-0 z-20 mt-1 w-max rounded-lg border border-border bg-popover p-1 shadow-xl">
           {children}
         </div>
       )}
@@ -92,414 +98,360 @@ function RowMenu({ open, onToggle, children }: { open: boolean; onToggle: () => 
   )
 }
 
-function MenuItem({ icon: Icon, onClick, danger, children }: { icon: LucideIcon; onClick: () => void; danger?: boolean; children: ReactNode }) {
+function ItemDoMenu({ icone: Icone, aoClicar, perigo, children }: { icone: LucideIcon; aoClicar: () => void; perigo?: boolean; children: ReactNode }) {
   return (
     <button
-      onClick={onClick}
+      onClick={aoClicar}
       className={cn(
-        "flex w-full items-center gap-2 whitespace-nowrap rounded-md px-2.5 py-1.5 text-left text-sm transition-colors hover:bg-muted",
-        danger ? "text-danger-emphasis" : "text-popover-foreground"
+        "flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm whitespace-nowrap transition-colors hover:bg-muted",
+        perigo ? "text-danger-emphasis" : "text-popover-foreground"
       )}
     >
-      <Icon className="h-4 w-4" /> {children}
+      <Icone className="size-4" /> {children}
     </button>
   )
 }
 
-function FormField({ id, label, required, hint, children }: { id: string; label: string; required?: boolean; hint?: string; children: ReactNode }) {
+function Campo({ id, rotulo, obrigatorio, dica, children }: { id: string; rotulo: string; obrigatorio?: boolean; dica?: string; children: ReactNode }) {
   return (
     <div className="space-y-2">
       <label htmlFor={id} className="text-sm font-medium text-foreground">
-        {label} {required && <span className="text-danger-emphasis">*</span>}
+        {rotulo} {obrigatorio && <span className="text-danger-emphasis">*</span>}
       </label>
       {children}
-      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+      {dica && <p className="text-xs text-muted-foreground">{dica}</p>}
     </div>
   )
 }
 
-const TH = "px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground"
-const TD = "px-6 py-4 text-left align-middle"
+export default function PaginaDaEquipe() {
+  const [resumo, setResumo] = useState<ResumoDaEquipe | null>(null)
+  const [membros, setMembros] = useState<Membro[] | null>(null)
+  const [linhas, setLinhas] = useState<Linha[]>([])
+  const [meuId, setMeuId] = useState<string | null>(null)
+  const [erro, setErro] = useState<string | null>(null)
+  const [busca, setBusca] = useState("")
+  const [menuAberto, setMenuAberto] = useState<string | null>(null)
+  const [enviando, setEnviando] = useState(false)
+  const [ficha, setFicha] = useState<Membro | "novo" | null>(null)
+  const [formulario, setFormulario] = useState<Formulario>(formularioDe(null))
+  const [erroDoFormulario, setErroDoFormulario] = useState<string | null>(null)
+  const [trocandoSenha, setTrocandoSenha] = useState<Membro | null>(null)
+  const [senhaTemporaria, setSenhaTemporaria] = useState("")
+  const [erroDaSenha, setErroDaSenha] = useState<string | null>(null)
+  const [removendo, setRemovendo] = useState<Membro | null>(null)
+  const [erroAoRemover, setErroAoRemover] = useState<string | null>(null)
 
-export default function TeamPage() {
-  const [overview, setOverview] = useState<TeamOverview | null>(null)
-  const [members, setMembers] = useState<Member[]>([])
-  const [units, setUnits] = useState<Unit[]>([])
-  const [loading, setLoading] = useState(true)
-  const [search, setSearch] = useState("")
-  const [openMenu, setOpenMenu] = useState<string | null>(null)
-  const [currentMemberId, setCurrentMemberId] = useState<string | null>(null)
-  const [submitting, setSubmitting] = useState(false)
-
-  // formulário de criação e edição
-  const [sheetOpen, setSheetOpen] = useState(false)
-  const [editing, setEditing] = useState<Member | null>(null)
-  const [formName, setFormName] = useState("")
-  const [formMatricula, setFormMatricula] = useState("")
-  const [formPhone, setFormPhone] = useState("")
-  const [formEmail, setFormEmail] = useState("")
-  const [formPassword, setFormPassword] = useState("")
-  const [formAllUnits, setFormAllUnits] = useState(true)
-  const [formUnitIds, setFormUnitIds] = useState<string[]>([])
-  const [formError, setFormError] = useState<string | null>(null)
-
-  const [passwordTarget, setPasswordTarget] = useState<Member | null>(null)
-  const [temporaryPassword, setTemporaryPassword] = useState("")
-  const [passwordError, setPasswordError] = useState<string | null>(null)
-
-  const [removeTarget, setRemoveTarget] = useState<Member | null>(null)
-  const [removeError, setRemoveError] = useState<string | null>(null)
-
-  const refresh = async () => {
-    const [o, m, u] = await Promise.all([getTeamOverview(), getMembers(), getUnits()])
-    setOverview(o); setMembers(m); setUnits(u)
+  const atualizar = async () => {
+    const [r, m, l] = await Promise.all([resumoDaEquipe(), listarMembros(), listarLinhas()])
+    setResumo(r)
+    setMembros(m)
+    setLinhas(l)
   }
 
   useEffect(() => {
-    refresh().catch(console.error).finally(() => setLoading(false))
-    getMe().then((member) => setCurrentMemberId(member.id)).catch(console.error)
+    atualizar().catch((e: Error) => { setErro(e.message); setMembros([]) })
+    minhaConta().then((m) => setMeuId(m.id)).catch(() => setMeuId(null))
   }, [])
 
   useEffect(() => {
-    if (!openMenu) return
-    const close = () => setOpenMenu(null)
-    document.addEventListener("click", close)
-    return () => document.removeEventListener("click", close)
-  }, [openMenu])
+    if (!menuAberto) return
+    const fechar = () => setMenuAberto(null)
+    document.addEventListener("click", fechar)
+    return () => document.removeEventListener("click", fechar)
+  }, [menuAberto])
 
-  const filteredMembers = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    if (!q) return members
-    const qDigits = phoneDigits(q)
-    return members.filter((m) => matches(q, m.name, m.matricula, m.email) || (qDigits !== "" && !!m.phone && phoneDigits(m.phone).includes(qDigits)))
-  }, [members, search])
+  const visiveis = useMemo(() => {
+    const termo = busca.trim().toLowerCase()
+    if (!membros || !termo) return membros ?? []
+    const digitos = digitosDoTelefone(termo)
+    return membros.filter((m) =>
+      [m.name, m.matricula, m.email].some((v) => v?.toLowerCase().includes(termo)) ||
+      (digitos !== "" && !!m.phone && m.phone.includes(digitos))
+    )
+  }, [membros, busca])
 
-  const openSheet = (member: Member | null) => {
-    setEditing(member)
-    setFormName(member?.name ?? ""); setFormMatricula(member?.matricula ?? "")
-    setFormPhone(formatPhone(member?.phone)); setFormEmail(member?.email ?? "")
-    setFormPassword(""); setFormAllUnits(true); setFormUnitIds([]); setFormError(null)
-    setSheetOpen(true)
+  const editando = ficha !== null && ficha !== "novo" ? ficha : null
+  const preencher = (mudanca: Partial<Formulario>) => setFormulario((f) => ({ ...f, ...mudanca }))
+
+  const abrirFicha = (membro: Membro | null) => {
+    setFormulario(formularioDe(membro))
+    setErroDoFormulario(null)
+    setFicha(membro ?? "novo")
   }
 
-  const toggleUnit = (id: string) => {
-    setFormUnitIds((prev) => (prev.includes(id) ? prev.filter((u) => u !== id) : [...prev, id]))
-  }
-
-  const saveForm = async () => {
-    const name = formName.trim()
-    const phone = phoneDigits(formPhone)
-    const email = formEmail.trim()
-
-    if (!name) throw new Error("Informe o nome.")
-    if (phone && !isCompletePhone(phone)) throw new Error("Informe o telefone com DDD, com 10 ou 11 dígitos.")
-    if (editing) return updateMember(editing.id, { name, phone: phone || null, email: email || null })
-
-    if (!formMatricula.trim()) throw new Error("Informe a matrícula.")
-    if (formPassword.length < MIN_PASSWORD_LENGTH) throw new Error(`A senha temporária precisa ter ao menos ${MIN_PASSWORD_LENGTH} caracteres.`)
-    if (!formAllUnits && formUnitIds.length === 0) throw new Error("Selecione ao menos uma unidade ou marque “Todas as unidades”.")
-
-    return createMember({
-      name,
-      matricula: formMatricula.trim(),
-      phone: phone || undefined,
-      email: email || undefined,
-      temporaryPassword: formPassword,
-      allUnits: formAllUnits,
-      unitIds: formAllUnits ? [] : formUnitIds,
-    })
-  }
-
-  const submitForm = async () => {
-    setFormError(null)
-    setSubmitting(true)
+  const executar = async (acao: () => Promise<unknown>, aoConcluir: () => void, aoFalhar: (mensagem: string) => void) => {
+    setEnviando(true)
     try {
-      await saveForm()
-      setSheetOpen(false)
-      await refresh()
-    } catch (error) {
-      setFormError((error as Error).message)
+      await acao()
+      aoConcluir()
+      await atualizar()
+    } catch (e) {
+      aoFalhar((e as Error).message)
     } finally {
-      setSubmitting(false)
+      setEnviando(false)
     }
   }
 
-  const openPasswordSheet = (member: Member) => {
-    setOpenMenu(null); setTemporaryPassword(""); setPasswordError(null)
-    setPasswordTarget(member)
+  const salvarFicha = () => {
+    const nome = formulario.nome.trim()
+    const fone = digitosDoTelefone(formulario.telefone)
+    const email = formulario.email.trim()
+    const falha = (() => {
+      if (!nome) return "Informe o nome."
+      if (fone && !telefoneCompleto(fone)) return "Informe o telefone com DDD, com 10 ou 11 dígitos."
+      if (editando) return null
+      if (!formulario.matricula.trim()) return "Informe a matrícula."
+      if (formulario.senha.length < TAMANHO_MINIMO_DA_SENHA) return `A senha temporária precisa ter ao menos ${TAMANHO_MINIMO_DA_SENHA} caracteres.`
+      if (!formulario.todasAsLinhas && formulario.linhas.length === 0) return "Selecione ao menos uma linha ou marque “Todas as linhas”."
+      return null
+    })()
+    if (falha) return setErroDoFormulario(falha)
+
+    setErroDoFormulario(null)
+    const acao = editando
+      ? () => alterarMembro(editando.id, { name: nome, phone: fone || null, email: email || null })
+      : () => criarMembro({
+          name: nome,
+          matricula: formulario.matricula.trim(),
+          phone: fone || undefined,
+          email: email || undefined,
+          temporaryPassword: formulario.senha,
+          allUnits: formulario.todasAsLinhas,
+          unitIds: formulario.todasAsLinhas ? [] : formulario.linhas,
+        })
+    executar(acao, () => setFicha(null), setErroDoFormulario)
   }
 
-  const submitPassword = async () => {
-    if (!passwordTarget) return
-    if (temporaryPassword.length < MIN_PASSWORD_LENGTH) return setPasswordError(`Use ao menos ${MIN_PASSWORD_LENGTH} caracteres.`)
-    setPasswordError(null)
-    setSubmitting(true)
-    try {
-      await resetMemberPassword(passwordTarget.id, temporaryPassword)
-      setPasswordTarget(null)
-      await refresh()
-    } catch (error) {
-      setPasswordError((error as Error).message)
-    } finally {
-      setSubmitting(false)
-    }
+  const salvarSenha = () => {
+    if (!trocandoSenha) return
+    if (senhaTemporaria.length < TAMANHO_MINIMO_DA_SENHA) return setErroDaSenha(`Use ao menos ${TAMANHO_MINIMO_DA_SENHA} caracteres.`)
+    setErroDaSenha(null)
+    executar(() => redefinirSenha(trocandoSenha.id, senhaTemporaria), () => setTrocandoSenha(null), setErroDaSenha)
   }
 
-  const toggleRole = async (member: Member) => {
-    setOpenMenu(null)
-    try {
-      await updateMemberRole(member.id, member.role === "ADMIN" ? "EMPLOYEE" : "ADMIN")
-      await refresh()
-    } catch (error) {
-      console.error(error)
-    }
+  const alternarPerfil = (membro: Membro) => {
+    setMenuAberto(null)
+    executar(() => alterarMembro(membro.id, { role: membro.role === "ADMIN" ? "EMPLOYEE" : "ADMIN" }), () => undefined, setErro)
   }
 
-  const askRemoval = (member: Member) => {
-    setOpenMenu(null); setRemoveError(null)
-    setRemoveTarget(member)
-  }
-
-  const confirmRemoval = async () => {
-    if (!removeTarget) return
-    setSubmitting(true)
-    try {
-      await deleteMember(removeTarget.id)
-      setRemoveTarget(null)
-      await refresh()
-    } catch (error) {
-      setRemoveError((error as Error).message)
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  const metrics = [
-    { label: "Membros", value: overview?.members ?? 0, icon: Users },
-    { label: "Unidades", value: overview?.units ?? 0, icon: Building2 },
-    { label: "Ativos hoje", value: overview?.activeToday ?? 0, icon: CheckCircle2 },
-  ]
-
-  if (loading) {
+  if (!membros) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-12 h-12 border-4 border-border border-t-signal rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-muted-foreground font-medium">Carregando equipe...</p>
-        </div>
+      <div className="flex min-h-screen items-center justify-center">
+        <Loader2 className="size-12 animate-spin text-signal" aria-label="Carregando equipe" />
       </div>
     )
   }
 
+  const totais = [
+    { rotulo: "Membros", valor: resumo?.members ?? 0, icone: Users },
+    { rotulo: "Linhas", valor: resumo?.units ?? 0, icone: Building2 },
+    { rotulo: "Ativos hoje", valor: resumo?.activeToday ?? 0, icone: CheckCircle2 },
+  ]
+
   return (
-    <div className="p-8">
-      {/* Breadcrumb + título */}
-      <div className="mb-8">
-        <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground mb-3 tracking-wider">
-          <span>ADMIN</span>
-          <ChevronRight className="h-3 w-3" />
-          <span>EQUIPE E OPERAÇÃO</span>
-          <ChevronRight className="h-3 w-3" />
-          <span className="text-foreground">MEMBROS</span>
-        </div>
-        <h1 className="text-3xl font-bold text-foreground mb-2">Membros</h1>
-        <p className="text-muted-foreground text-sm">Gerencie quem tem acesso ao HawkEye.</p>
-      </div>
+    <div className="space-y-8 p-4 sm:p-6 lg:p-8">
+      <Cabecalho trilha={[{ rotulo: "Admin", href: "/admin" }, { rotulo: "Equipe" }]} titulo="Equipe" descricao="Gerencie quem tem acesso ao HawkEye." />
 
-      {/* Cards de métrica */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-        {metrics.map((m) => {
-          const Icon = m.icon
-          return (
-            <div key={m.label} className="bg-card border border-border border-l-4 border-l-signal rounded-lg p-6">
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-3xl font-bold text-foreground tabular-nums">{m.value}</p>
-                  <p className="text-sm font-medium text-muted-foreground mt-1">{m.label}</p>
-                </div>
-                <Icon className="w-7 h-7 text-signal" />
-              </div>
+      {erro && <p role="alert" className="rounded-lg border border-danger/30 bg-danger/10 p-4 text-sm text-danger-emphasis">{erro}</p>}
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        {totais.map(({ rotulo, valor, icone: Icone }) => (
+          <div key={rotulo} className="flex items-start justify-between rounded-lg border border-l-4 border-border border-l-signal bg-card p-6">
+            <div>
+              <p className="text-3xl font-bold text-foreground tabular-nums">{valor}</p>
+              <p className="mt-1 text-sm font-medium text-muted-foreground">{rotulo}</p>
             </div>
-          )
-        })}
+            <Icone className="size-7 text-signal" />
+          </div>
+        ))}
       </div>
 
-      {/* Painel: busca + tabela */}
       <div className="rounded-xl border border-border bg-card">
         <div className="flex flex-col gap-3 border-b border-border p-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Buscar nome, matrícula ou contato"
-              aria-label="Buscar membros"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-9 w-full sm:w-80"
-            />
+            <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input placeholder="Buscar nome, matrícula ou contato" aria-label="Buscar membros" value={busca} onChange={(e) => setBusca(e.target.value)} className="w-full pl-9 sm:w-80" />
           </div>
-          <Button onClick={() => openSheet(null)}><Plus className="h-4 w-4" /> Adicionar funcionário</Button>
+          <Button onClick={() => abrirFicha(null)}><Plus className="size-4" /> Adicionar funcionário</Button>
         </div>
 
-        <table className="w-full table-fixed text-sm">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[860px] table-fixed text-sm">
             <colgroup>
-              <col style={{ width: "36%" }} />
-              <col style={{ width: "16%" }} />
-              <col style={{ width: "20%" }} />
-              <col style={{ width: "17%" }} />
-              <col style={{ width: "11%" }} />
+              <col className="w-[36%]" />
+              <col className="w-[16%]" />
+              <col className="w-[20%]" />
+              <col className="w-[17%]" />
+              <col className="w-[11%]" />
             </colgroup>
             <thead>
               <tr className="border-b border-border bg-muted/30">
-                <th className={TH}>Pessoa</th>
-                <th className={TH}>Telefone</th>
-                <th className={TH}>Unidades</th>
-                <th className={TH}>Último acesso</th>
+                <th className={CABECALHO}>Pessoa</th>
+                <th className={CABECALHO}>Telefone</th>
+                <th className={CABECALHO}>Linhas</th>
+                <th className={CABECALHO}>Último acesso</th>
                 <th className="px-6 py-3"><span className="sr-only">Ações</span></th>
               </tr>
             </thead>
             <tbody>
-              {filteredMembers.map((m) => (
-                <tr key={m.id} className="border-b border-border/60 last:border-0 transition-colors hover:bg-muted/30">
-                  <td className={TD}><Person member={m} /></td>
-                  <td className={cn(TD, "whitespace-nowrap text-muted-foreground tabular-nums")}>{formatPhone(m.phone) || "—"}</td>
-                  <td className={TD}>{unitsLabel(m.allUnits, m.units)}</td>
-                  <td className={TD}>
+              {visiveis.map((m) => (
+                <tr key={m.id} className="border-b border-border/60 transition-colors last:border-0 hover:bg-muted/30">
+                  <td className={CELULA}><Pessoa membro={m} /></td>
+                  <td className={cn(CELULA, "whitespace-nowrap text-muted-foreground tabular-nums")}>{telefone(m.phone) || "—"}</td>
+                  <td className={CELULA}><LinhasDoMembro membro={m} /></td>
+                  <td className={CELULA}>
                     <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
-                      <span className={cn("h-2 w-2 rounded-full", isToday(m.lastAccessAt) ? "bg-success" : "bg-muted-foreground/40")} />
-                      {formatLastAccess(m.lastAccessAt)}
+                      <span className={cn("size-2 rounded-full", acessouHoje(m.lastAccessAt) ? "bg-success" : "bg-muted-foreground/40")} />
+                      {ultimoAcesso(m.lastAccessAt)}
                     </span>
                   </td>
-                  <td className={TD}>
+                  <td className={CELULA}>
                     <div className="flex items-center justify-end gap-1">
                       <button
-                        onClick={() => openSheet(m)}
+                        onClick={() => abrirFicha(m)}
                         className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                         aria-label={`Editar ${m.name}`}
                       >
-                        <Pencil className="h-4 w-4" />
+                        <Pencil className="size-4" />
                       </button>
-                      {m.id === currentMemberId ? (
+                      {m.id === meuId ? (
                         <span className="w-7 text-center text-xs text-muted-foreground">Você</span>
                       ) : (
-                        <RowMenu open={openMenu === m.id} onToggle={() => setOpenMenu(openMenu === m.id ? null : m.id)}>
-                          <MenuItem icon={KeyRound} onClick={() => openPasswordSheet(m)}>
+                        <MenuDaLinha aberto={menuAberto === m.id} aoAlternar={() => setMenuAberto(menuAberto === m.id ? null : m.id)}>
+                          <ItemDoMenu icone={KeyRound} aoClicar={() => { setMenuAberto(null); setSenhaTemporaria(""); setErroDaSenha(null); setTrocandoSenha(m) }}>
                             {m.hasPassword ? "Redefinir senha" : "Definir senha"}
-                          </MenuItem>
-                          <MenuItem icon={ShieldCheck} onClick={() => toggleRole(m)}>
+                          </ItemDoMenu>
+                          <ItemDoMenu icone={ShieldCheck} aoClicar={() => alternarPerfil(m)}>
                             {m.role === "ADMIN" ? "Tornar funcionário" : "Tornar administrador"}
-                          </MenuItem>
-                          <MenuItem icon={Trash2} danger onClick={() => askRemoval(m)}>
+                          </ItemDoMenu>
+                          <ItemDoMenu icone={Trash2} perigo aoClicar={() => { setMenuAberto(null); setErroAoRemover(null); setRemovendo(m) }}>
                             Remover da equipe
-                          </MenuItem>
-                        </RowMenu>
+                          </ItemDoMenu>
+                        </MenuDaLinha>
                       )}
                     </div>
                   </td>
                 </tr>
               ))}
-              {filteredMembers.length === 0 && (
+              {visiveis.length === 0 && (
                 <tr><td colSpan={5} className="px-6 py-10 text-center text-muted-foreground">Nenhum membro encontrado.</td></tr>
               )}
             </tbody>
-        </table>
+          </table>
+        </div>
       </div>
 
-      {/* Sheet: adicionar ou editar */}
-      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+      <Sheet open={ficha !== null} onOpenChange={(aberta) => { if (!aberta) setFicha(null) }}>
         <SheetContent className="w-full sm:max-w-md">
           <SheetHeader>
-            <SheetTitle>{editing ? "Editar registro" : "Adicionar funcionário"}</SheetTitle>
+            <SheetTitle>{editando ? "Editar registro" : "Adicionar funcionário"}</SheetTitle>
             <SheetDescription>
-              {editing ? "Atualize os dados de contato desta pessoa." : "A pessoa entra com a senha temporária e cria a própria no primeiro acesso."}
+              {editando ? "Atualize os dados de contato desta pessoa." : "A pessoa entra com a senha temporária e cria a própria no primeiro acesso."}
             </SheetDescription>
           </SheetHeader>
 
-          <div className="flex-1 overflow-y-auto px-4 space-y-5">
-            <FormField id="member-name" label="Nome" required>
-              <Input id="member-name" value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="Nome da pessoa" />
-            </FormField>
-            <FormField id="member-matricula" label="Matrícula" required={!editing} hint={editing ? "A matrícula não pode ser alterada." : undefined}>
-              <Input id="member-matricula" value={formMatricula} disabled={editing !== null} onChange={(e) => setFormMatricula(e.target.value)} placeholder="Ex.: 1001" />
-            </FormField>
-            <FormField id="member-phone" label="Telefone">
-              <Input id="member-phone" type="tel" inputMode="numeric" autoComplete="tel-national" value={formPhone} onChange={(e) => setFormPhone(formatPhone(e.target.value))} placeholder="(11) 91234-5678" />
-            </FormField>
-            <FormField id="member-email" label="E-mail">
-              <Input id="member-email" type="email" value={formEmail} onChange={(e) => setFormEmail(e.target.value)} placeholder="pessoa@empresa.com" />
-            </FormField>
+          <div className="flex-1 space-y-5 overflow-y-auto px-4">
+            <Campo id="nome-do-membro" rotulo="Nome" obrigatorio>
+              <Input id="nome-do-membro" value={formulario.nome} onChange={(e) => preencher({ nome: e.target.value })} placeholder="Nome da pessoa" />
+            </Campo>
+            <Campo id="matricula-do-membro" rotulo="Matrícula" obrigatorio={!editando} dica={editando ? "A matrícula não pode ser alterada." : undefined}>
+              <Input id="matricula-do-membro" value={formulario.matricula} disabled={editando !== null} onChange={(e) => preencher({ matricula: e.target.value })} placeholder="Ex.: 1001" />
+            </Campo>
+            <Campo id="telefone-do-membro" rotulo="Telefone">
+              <Input
+                id="telefone-do-membro"
+                type="tel"
+                inputMode="numeric"
+                autoComplete="tel-national"
+                value={formulario.telefone}
+                onChange={(e) => preencher({ telefone: telefone(e.target.value) })}
+                placeholder="(11) 91234-5678"
+              />
+            </Campo>
+            <Campo id="email-do-membro" rotulo="E-mail">
+              <Input id="email-do-membro" type="email" value={formulario.email} onChange={(e) => preencher({ email: e.target.value })} placeholder="pessoa@empresa.com" />
+            </Campo>
 
-            {!editing && (
+            {!editando && (
               <>
                 <div className="space-y-2">
-                  <p className="text-sm font-medium text-foreground">Unidades</p>
-                  <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer">
-                    <input type="checkbox" className="accent-primary h-4 w-4" checked={formAllUnits} onChange={(e) => setFormAllUnits(e.target.checked)} />
-                    Todas as unidades
+                  <p className="text-sm font-medium text-foreground">Linhas</p>
+                  <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
+                    <input type="checkbox" className="size-4 accent-primary" checked={formulario.todasAsLinhas} onChange={(e) => preencher({ todasAsLinhas: e.target.checked })} />
+                    Todas as linhas
                   </label>
-                  {!formAllUnits && (
+                  {!formulario.todasAsLinhas && (
                     <div className="flex flex-wrap gap-2 pt-1">
-                      {units.map((u) => {
-                        const on = formUnitIds.includes(u.id)
+                      {linhas.map((l) => {
+                        const marcada = formulario.linhas.includes(l.id)
                         return (
-                          <button key={u.id} type="button" aria-pressed={on} onClick={() => toggleUnit(u.id)}
-                            className={cn("rounded-full border px-3 py-1 text-xs transition-colors",
-                              on ? "border-signal bg-signal/10 text-signal" : "border-border text-muted-foreground hover:bg-muted")}>
-                            {u.name}
+                          <button
+                            key={l.id}
+                            type="button"
+                            aria-pressed={marcada}
+                            onClick={() => preencher({ linhas: marcada ? formulario.linhas.filter((id) => id !== l.id) : [...formulario.linhas, l.id] })}
+                            className={cn(
+                              "rounded-full border px-3 py-1 text-xs transition-colors",
+                              marcada ? "border-signal bg-signal/10 text-signal" : "border-border text-muted-foreground hover:bg-muted"
+                            )}
+                          >
+                            {l.name}
                           </button>
                         )
                       })}
                     </div>
                   )}
                 </div>
-                <FormField id="member-password" label="Senha temporária" required hint={`Use ao menos ${MIN_PASSWORD_LENGTH} caracteres.`}>
-                  <Input id="member-password" type="text" autoComplete="off" value={formPassword} onChange={(e) => setFormPassword(e.target.value)} />
-                </FormField>
+                <Campo id="senha-do-membro" rotulo="Senha temporária" obrigatorio dica={`Use ao menos ${TAMANHO_MINIMO_DA_SENHA} caracteres.`}>
+                  <Input id="senha-do-membro" type="text" autoComplete="off" value={formulario.senha} onChange={(e) => preencher({ senha: e.target.value })} />
+                </Campo>
               </>
             )}
 
-            {formError && <p role="alert" className="text-sm text-danger-emphasis">{formError}</p>}
+            {erroDoFormulario && <p role="alert" className="text-sm text-danger-emphasis">{erroDoFormulario}</p>}
           </div>
 
           <SheetFooter>
-            <Button onClick={submitForm} disabled={submitting}>
-              {submitting ? "Salvando..." : editing ? "Salvar alterações" : "Adicionar funcionário"}
+            <Button onClick={salvarFicha} disabled={enviando}>
+              {enviando ? "Salvando..." : editando ? "Salvar alterações" : "Adicionar funcionário"}
             </Button>
-            <Button variant="outline" onClick={() => setSheetOpen(false)} disabled={submitting}>Cancelar</Button>
+            <Button variant="outline" onClick={() => setFicha(null)} disabled={enviando}>Cancelar</Button>
           </SheetFooter>
         </SheetContent>
       </Sheet>
 
-      {/* Sheet: senha temporária */}
-      <Sheet open={passwordTarget !== null} onOpenChange={(open) => { if (!open) setPasswordTarget(null) }}>
+      <Sheet open={trocandoSenha !== null} onOpenChange={(aberta) => { if (!aberta) setTrocandoSenha(null) }}>
         <SheetContent className="w-full sm:max-w-md">
           <SheetHeader>
             <SheetTitle>Definir senha temporária</SheetTitle>
             <SheetDescription>
-              {passwordTarget?.name} entra com esta senha e cria a própria no primeiro acesso. Sessões abertas dessa pessoa serão encerradas.
+              {trocandoSenha?.name} entra com esta senha e cria a própria no primeiro acesso. Sessões abertas dessa pessoa serão encerradas.
             </SheetDescription>
           </SheetHeader>
           <div className="flex-1 space-y-2 px-4">
-            <label htmlFor="temporary-password" className="text-sm font-medium text-foreground">Senha temporária <span className="text-danger-emphasis">*</span></label>
-            <Input id="temporary-password" type="text" autoComplete="off" value={temporaryPassword} onChange={(e) => setTemporaryPassword(e.target.value)} />
-            {passwordError && <p role="alert" className="text-sm text-danger-emphasis">{passwordError}</p>}
+            <Campo id="senha-temporaria" rotulo="Senha temporária" obrigatorio>
+              <Input id="senha-temporaria" type="text" autoComplete="off" value={senhaTemporaria} onChange={(e) => setSenhaTemporaria(e.target.value)} />
+            </Campo>
+            {erroDaSenha && <p role="alert" className="text-sm text-danger-emphasis">{erroDaSenha}</p>}
           </div>
           <SheetFooter>
-            <Button onClick={submitPassword} disabled={submitting}>{submitting ? "Salvando..." : "Salvar senha"}</Button>
-            <Button variant="outline" onClick={() => setPasswordTarget(null)} disabled={submitting}>Cancelar</Button>
+            <Button onClick={salvarSenha} disabled={enviando}>{enviando ? "Salvando..." : "Salvar senha"}</Button>
+            <Button variant="outline" onClick={() => setTrocandoSenha(null)} disabled={enviando}>Cancelar</Button>
           </SheetFooter>
         </SheetContent>
       </Sheet>
 
-      <ConfirmDialog
-        open={removeTarget !== null}
-        title={`Remover ${removeTarget?.name ?? ""} da equipe?`}
-        description="A pessoa perde o acesso imediatamente. As coletas já feitas continuam no sistema e nas métricas."
-        confirmLabel="Remover da equipe"
-        pendingLabel="Removendo..."
-        pending={submitting}
-        error={removeError}
-        onConfirm={confirmRemoval}
-        onCancel={() => setRemoveTarget(null)}
+      <DialogoDeConfirmacao
+        aberto={removendo !== null}
+        titulo={`Remover ${removendo?.name ?? ""} da equipe?`}
+        descricao="A pessoa perde o acesso imediatamente. As coletas já feitas continuam no sistema e nas métricas."
+        confirmar="Remover da equipe"
+        confirmando="Removendo..."
+        enviando={enviando}
+        erro={erroAoRemover}
+        aoConfirmar={() => removendo && executar(() => removerMembro(removendo.id), () => setRemovendo(null), setErroAoRemover)}
+        aoCancelar={() => setRemovendo(null)}
       />
     </div>
   )
