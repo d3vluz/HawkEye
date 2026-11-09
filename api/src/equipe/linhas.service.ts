@@ -53,7 +53,7 @@ export class LinhasService implements OnModuleInit {
 
   private async buscar(id: string) {
     const linha = await this.banco.unit.findUnique({ where: { id } });
-    if (!linha) throw new NotFoundException('Unidade não encontrada');
+    if (!linha) throw new NotFoundException('Linha não encontrada');
     return linha;
   }
 
@@ -62,7 +62,7 @@ export class LinhasService implements OnModuleInit {
     const existente = await this.banco.unit.findFirst({
       where: { name: { equals: limpo, mode: 'insensitive' }, id: excetoId ? { not: excetoId } : undefined },
     });
-    if (existente) throw new ConflictException('Já existe uma unidade com esse nome');
+    if (existente) throw new ConflictException('Já existe uma linha com esse nome');
     return limpo;
   }
 }

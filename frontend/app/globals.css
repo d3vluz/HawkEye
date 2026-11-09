@@ -223,26 +223,28 @@ input:-webkit-autofill {
   --autofill-surface: color-mix(in oklab, var(--input) 30%, var(--background));
 }
 
-/* Varredura única do painel de login: cada caixa surge quando a linha passa pela sua coluna. */
+/* Varredura do painel de login em ciclo de 7s: cada caixa surge quando a linha passa pela sua coluna,
+   fica ~3s na tela e some na mesma ordem antes da próxima passada. Todos usam o mesmo período para não perder a fase. */
 .auth-sweep {
   opacity: 0;
-  animation: auth-sweep 1.6s cubic-bezier(0.45, 0, 0.55, 1) 0.3s;
+  animation: auth-sweep 7s cubic-bezier(0.45, 0, 0.55, 1) 0.3s infinite;
 }
 
 .auth-detection {
-  animation: auth-detection 0.35s ease-out both;
+  animation: auth-detection 7s ease-out infinite both;
   animation-delay: calc(0.3s + (var(--column) + 0.5) * 0.32s);
 }
 
 @keyframes auth-sweep {
   0% { opacity: 1; transform: translateX(0); }
-  92% { opacity: 1; }
-  100% { opacity: 0; transform: translateX(420px); }
+  21% { opacity: 1; }
+  22.9%, 100% { opacity: 0; transform: translateX(420px); }
 }
 
 @keyframes auth-detection {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  0% { opacity: 0; }
+  5%, 65.7% { opacity: 1; }
+  71.4%, 100% { opacity: 0; }
 }
 
 /* Grade de pontos que some em direção ao formulário: textura de instrumento sem competir com o conteúdo. */

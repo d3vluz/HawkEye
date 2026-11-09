@@ -1,5 +1,3 @@
-// Tipos de domínio do frontend num só lugar. As chaves seguem o JSON da API e do worker (contrato em inglês).
-
 // ===== Sessão e equipe =====
 
 export type Perfil = "ADMIN" | "EMPLOYEE"
@@ -63,7 +61,6 @@ export interface Correcao {
 
 // ===== Lote e capturas =====
 
-// O mesmo formato vem da lista de lotes, das coletas, do detalhe e dos lotes recentes do dashboard.
 export interface Lote {
   id: string
   name: string

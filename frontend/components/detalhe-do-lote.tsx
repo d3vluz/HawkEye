@@ -14,7 +14,7 @@ import { Visualizador } from "@/components/revisao/visualizador"
 import { Button } from "@/components/ui/button"
 import { lerCriterios } from "@/lib/api"
 import { VERIFICACOES, camadaDoDefeito } from "@/lib/defeitos"
-import { dataEHora } from "@/lib/formato"
+import { dataEHora, percentual } from "@/lib/formato"
 import { useSetas } from "@/lib/use-setas"
 import { cn } from "@/lib/utils"
 import type { Camada, Captura, Defeito, ItemDeCaptura, LoteComCapturas } from "@/types"
@@ -213,7 +213,7 @@ export function DetalheDoLote({ id, carregar, trilha }: {
           <h2 className="text-sm font-semibold text-foreground">Resultado do lote</h2>
           <div className="mt-3 flex items-end justify-between gap-3">
             <div>
-              <p className="text-4xl font-bold tracking-tight tabular-nums text-foreground">{lote.quality_score.toFixed(1)}%</p>
+              <p className="text-4xl font-bold tracking-tight tabular-nums text-foreground">{percentual(lote.quality_score)}</p>
               <p className="mt-1 text-sm text-muted-foreground">das capturas aprovadas</p>
             </div>
             {meta !== null && (
