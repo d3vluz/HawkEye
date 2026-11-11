@@ -1,8 +1,8 @@
 # Visão computacional
 
-A análise das imagens roda no **worker** (`worker/`), um serviço FastAPI com OpenCV e NumPy. É um pipeline determinístico, sem aprendizado de máquina: cada etapa usa contraste, cor e geometria para decidir, e gera uma imagem marcada mostrando o que viu.
+A análise das imagens roda no **worker** (`worker/`), um serviço FastAPI com OpenCV e NumPy. **É um pipeline determinístico**, sem aprendizado de máquina: cada etapa usa contraste, cor e geometria para decidir, e gera uma imagem marcada mostrando o que viu.
 
-O worker não acessa o banco e só é chamado pela API, pela rede interna do Docker. Ele lê a imagem original do bucket `review`, grava as imagens processadas no mesmo bucket e devolve as contagens.
+O worker não acessa o PostgreSQL e só é chamado pela API, pela rede interna do Docker. Ele lê a imagem original do bucket `review`, grava as imagens processadas no mesmo bucket e devolve as contagens.
 
 ![Etapas da análise](imagens/pipeline.jpg)
 
@@ -50,7 +50,6 @@ A agulha é procurada como uma linha fina e clara saindo do disco do pino, com f
 - **Quebrada:** visível em menos de 0,35 do comprimento esperado.
 - **Curta ou torta:** menos de 0,65 do comprimento esperado com o fim da agulha visível.
 
-![Exemplos de defeitos marcados em cada etapa](imagens/defeitos.jpg)
 
 ## Contrato com a API
 
@@ -102,12 +101,3 @@ O dataset rotulado não faz parte do repositório.
 Depois de mudar qualquer limiar ou lógica de uma etapa, rode `avaliar.py` antes e depois da mudança e compare as duas tabelas. Uma melhora numa classe costuma custar falsos alarmes em outra, especialmente na classe OK, que é a maior.
 
 No modo de desenvolvimento (`docker-compose.dev.yml`), o código de `worker/src/` é montado no container e o uvicorn recarrega ao salvar.
-
-## Variáveis de ambiente
-
-| Variável | Padrão | Uso |
-|----------|--------|-----|
-| `MINIO_ENDPOINT` | `http://minio:9000` | Endereço interno do MinIO |
-| `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` | — | Credenciais do MinIO |
-| `MINIO_BUCKET_REVIEW` | `review` | Bucket de leitura e gravação |
-| `MINIO_PUBLIC_URL` | `http://localhost:9000` | Base das URLs públicas devolvidas |

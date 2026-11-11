@@ -1,84 +1,94 @@
 # Banco de dados
 
-PostgreSQL 15, acessado pela API com Prisma (`prisma-client-js`). O schema fica em [`api/prisma/schema.prisma`](../api/prisma/schema.prisma). O worker não acessa o banco.
+PostgreSQL 15, acessado pela API com Prisma (`prisma-client-js`). O schema fica em [`api/prisma/schema.prisma`](../api/prisma/schema.prisma). O worker não acessa o PostgreSQL; ele só lê e grava imagens no MinIO.
 
 ```mermaid
 erDiagram
-    Unit ||--o{ Batch : "recebe (Restrict)"
-    Batch ||--|{ Capture : "contém (Cascade)"
-    Member }o--o{ Unit : "tem acesso a"
-    Batch }o..o| Member : "authorMatricula (sem FK)"
+    Unit |o--o{ Batch : "recebe (Restrict)"
+    Batch ||--o{ Capture : "contém (Cascade)"
+    Member ||--o{ _MemberToUnit : "membro"
+    Unit ||--o{ _MemberToUnit : "linha"
+    Member |o..o{ Batch : "authorMatricula, sem FK"
 
     Batch {
-        uuid id PK
-        string name
-        string description
-        datetime createdAt
-        int totalCaptures
-        int validCaptures
-        int invalidCaptures
-        string authorMatricula
-        uuid unitId FK
+        text id PK
+        text name
+        text description "nulo"
+        timestamp createdAt
+        integer totalCaptures
+        integer validCaptures
+        integer invalidCaptures
+        text authorMatricula "nulo, sem FK"
+        text unitId FK "nulo"
     }
     Capture {
-        uuid id PK
-        uuid batchId FK
-        string filename
-        string sha256 UK
-        string originalUri
-        string processedUri
-        string processedAreasUri
-        string processedPinsUri
-        string processedShaftUri
-        bool isValid
-        int defectsCount
-        bool hasMissingPins
-        bool hasExtraPins
-        bool hasDamagedPins
-        bool hasWrongColorPins
-        bool hasStructureDamage
-        bool hasShaftDefects
-        json corrections
-        datetime createdAt
+        text id PK
+        text batchId FK
+        text filename
+        text sha256 UK
+        text originalUri
+        text processedUri "nulo"
+        text processedAreasUri "nulo"
+        text processedPinsUri "nulo"
+        text processedShaftUri "nulo"
+        boolean isValid
+        integer defectsCount
+        boolean hasMissingPins
+        boolean hasExtraPins
+        boolean hasDamagedPins
+        boolean hasWrongColorPins
+        boolean hasStructureDamage
+        boolean hasShaftDefects
+        jsonb corrections "nulo"
+        timestamp createdAt
     }
     Unit {
-        uuid id PK
-        string name
-        datetime createdAt
+        text id PK
+        text name
+        timestamp createdAt
+    }
+    _MemberToUnit {
+        text A FK "Member.id"
+        text B FK "Unit.id"
     }
     Member {
-        uuid id PK
-        string name
-        string matricula UK
-        string email UK
-        string phone
-        string githubUsername
-        MemberRole role
-        MemberStatus status
-        bool allUnits
-        datetime lastAccessAt
-        string passwordHash
-        bool mustChangePassword
-        int tokenVersion
+        text id PK
+        text name
+        text matricula UK "nulo"
+        text email UK "nulo"
+        text phone "nulo"
+        text githubUsername "nulo"
+        MemberRole role "ADMIN ou EMPLOYEE"
+        MemberStatus status "ACTIVE ou INACTIVE"
+        boolean allUnits
+        timestamp lastAccessAt "nulo"
+        timestamp createdAt
+        text passwordHash "nulo"
+        boolean mustChangePassword
+        integer tokenVersion
     }
     InspectionSettings {
-        int id PK "sempre 1"
-        int expectedRows
-        int expectedCols
-        int minQualityScore
-        bool rejectMissingPins
-        bool rejectExtraPins
-        bool rejectDamagedPins
-        bool rejectWrongColorPins
-        bool rejectStructureDamage
-        bool rejectShaftDefects
-        string updatedByMatricula
+        integer id PK "sempre 1"
+        integer expectedRows "nulo"
+        integer expectedCols "nulo"
+        integer minQualityScore
+        boolean rejectMissingPins
+        boolean rejectExtraPins
+        boolean rejectDamagedPins
+        boolean rejectWrongColorPins
+        boolean rejectStructureDamage
+        boolean rejectShaftDefects
+        timestamp updatedAt
+        text updatedByMatricula "nulo"
     }
 ```
 
+Tipos como ficam no PostgreSQL. "nulo" marca os campos opcionais. Os ids são `text` com UUID gerado pelo Prisma.
+
+
 ## Tabelas
 
-### `Batch` — lote
+### `Batch` ➝ lote
 
 Um conjunto de capturas registrado de uma vez por um funcionário, numa linha de produção.
 
@@ -87,7 +97,7 @@ Um conjunto de capturas registrado de uma vez por um funcionário, numa linha de
 - `unitId` liga o lote à linha com `onDelete: Restrict`: uma linha que tem lotes não pode ser removida, só renomeada, para as métricas por linha não perderem a origem.
 - Índices em `(authorMatricula, createdAt)` e `(unitId, createdAt)` atendem às listas de "minhas coletas" e ao filtro por linha.
 
-### `Capture` — captura
+### `Capture` ➝ captura
 
 Uma imagem analisada dentro de um lote. Excluir o lote apaga as capturas (`onDelete: Cascade`).
 
@@ -97,20 +107,20 @@ Uma imagem analisada dentro de um lote. Excluir o lote apaga as capturas (`onDel
 - `defectsCount` soma a quantidade de cada defeito encontrado; dano estrutural conta 1.
 - `corrections` registra o que o operador mudou na revisão, como uma lista de `{ defect, detected, corrected }`. É `null` quando nada foi corrigido. Permite ver, no detalhe do lote, onde o sistema errou.
 
-### `Unit` — linha de produção
+### `Unit` ➝ linha de produção
 
 Linhas de produção às quais lotes e membros se ligam. A API cria Linha A, B e C no primeiro uso se não existir nenhuma.
 
-### `Member` — membro da equipe
+### `Member` ➝ membro da equipe
 
 - `matricula` é obrigatória em cadastros novos, única e imutável. `email` é opcional e também único. O login aceita qualquer um dos dois.
 - `role` é `ADMIN` ou `EMPLOYEE`; novos cadastros entram como `EMPLOYEE`.
 - `status` `INACTIVE` bloqueia o login e derruba sessões abertas.
-- `allUnits` dá acesso a todas as linhas; caso contrário, o acesso vem da relação muitos-para-muitos com `Unit`. O funcionário só registra lotes em linhas a que tem acesso.
+- `allUnits` dá acesso a todas as linhas; caso contrário, o acesso vem da relação muitos-para-muitos com `Unit`, guardada na tabela `_MemberToUnit` que o Prisma cria sozinho (`A` é o membro, `B` é a linha). O funcionário só registra lotes em linhas a que tem acesso.
 - `passwordHash` é Argon2. `mustChangePassword` obriga a troca no próximo acesso (senha temporária definida pelo admin).
 - `tokenVersion` entra no JWT da sessão. Incrementá-lo (troca ou redefinição de senha) invalida todas as sessões abertas do membro.
 
-### `InspectionSettings` — critérios de inspeção
+### `InspectionSettings` ➝ critérios de inspeção
 
 Linha única (`id = 1`), criada com os valores padrão na primeira leitura.
 

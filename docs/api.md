@@ -12,16 +12,9 @@ Toda rota exige sessão, exceto as marcadas como públicas. A sessão vai no coo
 | `403` | Perfil sem acesso à rota, ou senha temporária ainda não trocada |
 | `429` | Mais de 5 tentativas de login no mesmo minuto |
 
-```bash
-curl -c cookie.txt -H "Content-Type: application/json" \
-  -d '{"identifier":"admin","password":"admin"}' http://localhost:8000/api/auth/login
-
-curl -b cookie.txt http://localhost:8000/api/metrics/dashboard
-```
-
 ## Rotas
 
-**Perfis:** público = sem sessão · sessão = qualquer perfil logado · func. = `EMPLOYEE` · admin = `ADMIN`.
+**Perfis:** público = sem sessão | sessão = qualquer perfil logado | func. = `EMPLOYEE` | admin = `ADMIN`.
 
 ### Autenticação — `api/src/autenticacao/`
 
