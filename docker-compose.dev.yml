@@ -1,0 +1,36 @@
+# Modo de desenvolvimento: código montado e recarga automática, sem reconstruir imagens.
+# docker compose -f docker-compose.yml -f docker-compose.dev.yml up -V
+#
+# O polling é necessário porque o Docker Desktop não repassa eventos de arquivo das pastas do Windows.
+
+services:
+  worker:
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./worker/src:/app/src
+    environment:
+      WATCHFILES_FORCE_POLLING: "true"
+
+  api:
+    build:
+      target: builder
+    command: sh -c "npx prisma generate && npx prisma db push --skip-generate && npx nest start --watch --preserveWatchOutput"
+    environment:
+      TSC_WATCHFILE: DynamicPriorityPolling
+      TSC_WATCHDIRECTORY: DynamicPriorityPolling
+    healthcheck:
+      start_period: 90s
+
+  frontend:
+    build:
+      target: deps
+    command: npx next dev
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    environment:
+      WATCHPACK_POLLING: "true"
+      NEXT_TELEMETRY_DISABLED: "1"
+    healthcheck:
+      start_period: 90s

@@ -1,0 +1,114 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Batch {
+  id              String    @id @default(uuid())
+  name            String
+  description     String?
+  createdAt       DateTime  @default(now())
+  totalCaptures   Int       @default(0)
+  validCaptures   Int       @default(0)
+  invalidCaptures Int       @default(0)
+
+  // Sem chave estrangeira: a matrícula precisa continuar no lote após excluir o membro.
+  authorMatricula String?
+
+  // Restrict: uma linha com lotes não pode sumir, senão as métricas por linha perdem a origem.
+  unitId String?
+  unit   Unit?   @relation(fields: [unitId], references: [id], onDelete: Restrict)
+
+  captures Capture[]
+
+  @@index([authorMatricula, createdAt])
+  @@index([unitId, createdAt])
+}
+
+model Capture {
+  id      String @id @default(uuid())
+  batchId String
+  batch   Batch  @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  filename          String
+  sha256            String   @unique
+  originalUri       String
+  processedUri      String?
+  processedAreasUri String?
+  processedPinsUri  String?
+  processedShaftUri String?
+
+  isValid      Boolean @default(false)
+  defectsCount Int     @default(0)
+
+  hasMissingPins    Boolean @default(false)
+  hasExtraPins      Boolean @default(false)
+  hasDamagedPins    Boolean @default(false)
+  hasWrongColorPins Boolean @default(false)
+  hasStructureDamage Boolean @default(false)
+  hasShaftDefects   Boolean @default(false)
+
+  // Defeitos que o operador corrigiu na revisão: [{ defect, detected, corrected }].
+  corrections Json?
+
+  createdAt DateTime @default(now())
+}
+
+enum MemberStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum MemberRole {
+  ADMIN
+  EMPLOYEE
+}
+
+model Unit {
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now())
+
+  members Member[]
+  batches Batch[]
+}
+
+model Member {
+  id           String       @id @default(uuid())
+  name         String
+  matricula    String?      @unique
+  email        String?      @unique
+  phone        String?
+  githubUsername String?
+  role         MemberRole   @default(EMPLOYEE)
+  status       MemberStatus @default(ACTIVE)
+  allUnits     Boolean      @default(false)
+  lastAccessAt DateTime?
+  createdAt    DateTime     @default(now())
+
+  passwordHash       String?
+  mustChangePassword Boolean @default(true)
+  tokenVersion       Int     @default(0)
+
+  units Unit[]
+}
+
+// Linha única (id = 1): os critérios valem para o sistema inteiro.
+model InspectionSettings {
+  id                    Int      @id @default(1)
+  expectedRows          Int?
+  expectedCols          Int?
+  minQualityScore       Int      @default(80)
+  rejectMissingPins     Boolean  @default(true)
+  rejectExtraPins       Boolean  @default(true)
+  rejectDamagedPins     Boolean  @default(true)
+  rejectWrongColorPins  Boolean  @default(true)
+  rejectStructureDamage Boolean  @default(true)
+  rejectShaftDefects    Boolean  @default(true)
+  updatedAt             DateTime @updatedAt
+  updatedByMatricula    String?
+}

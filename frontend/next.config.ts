@@ -1,13 +1,21 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  output: "standalone",
   images: {
+    unoptimized: true,
     remotePatterns: [
       {
-        protocol: 'https',
-        hostname: 'tgxniodzswqekmaeexsy.supabase.co',
-        port: '',
-        pathname: '/storage/v1/object/public/**',
+        protocol: 'http',
+        hostname: 'localhost',
+      },
+      {
+        protocol: 'http',
+        hostname: '127.0.0.1',
+      },
+      {
+        protocol: 'http',
+        hostname: 'api',
       },
       {
         protocol: 'https',
@@ -17,6 +25,14 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  async rewrites() {
+    return [
+      {
+        source: '/api/:path*',
+        destination: `http://api:3001/api/:path*`
+      }
+    ];
+  }
 };
 
 export default nextConfig;

@@ -1,25 +1,67 @@
 "use client"
 
-import { ChevronRight } from "lucide-react"
+// Configurações do admin: linhas de produção, critérios de inspeção, armazenamento e status dos serviços.
 
-export default function ConfiguracoesPage() {
+import { useEffect, useState } from "react"
+import { Activity, Building2, HardDrive, SlidersHorizontal, type LucideIcon } from "lucide-react"
+import { Cabecalho } from "@/components/cabecalho"
+import { SecaoDeArmazenamento } from "@/components/configuracoes/armazenamento"
+import { SecaoDeCriterios } from "@/components/configuracoes/criterios"
+import { SecaoDeLinhas } from "@/components/configuracoes/linhas"
+import { SecaoDeStatus } from "@/components/configuracoes/status"
+import { cn } from "@/lib/utils"
+
+const SECOES: Array<{ id: string; rotulo: string; icone: LucideIcon; Conteudo: () => React.JSX.Element }> = [
+  { id: "linhas", rotulo: "Linhas de produção", icone: Building2, Conteudo: SecaoDeLinhas },
+  { id: "criterios", rotulo: "Critérios de inspeção", icone: SlidersHorizontal, Conteudo: SecaoDeCriterios },
+  { id: "armazenamento", rotulo: "Armazenamento", icone: HardDrive, Conteudo: SecaoDeArmazenamento },
+  { id: "status", rotulo: "Status do sistema", icone: Activity, Conteudo: SecaoDeStatus },
+]
+
+export default function PaginaDeConfiguracoes() {
+  const [ativa, setAtiva] = useState(SECOES[0].id)
+  
+  useEffect(() => {
+    const sincronizar = () => {
+      const doHash = window.location.hash.slice(1)
+      if (SECOES.some((s) => s.id === doHash)) setAtiva(doHash)
+    }
+    sincronizar()
+    window.addEventListener("hashchange", sincronizar)
+    return () => window.removeEventListener("hashchange", sincronizar)
+  }, [])
+
+  const atual = SECOES.find((s) => s.id === ativa) ?? SECOES[0]
+
   return (
-    <div className="p-8">
-      {/* Header com Breadcrumb */}
-      <div className="mb-8">
-        <div className="flex items-center gap-2 text-xs font-medium text-gray-500 mb-3 tracking-wider">
-          <span>ADMIN</span>
-          <ChevronRight className="h-3 w-3 text-gray-500"/>
-          <span className="text-gray-700">CONFIGURAÇÕES</span>
-        </div>
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Configurações</h1>
-        <p className="text-gray-600 text-sm">Ajuste parâmetros e configurações pertinentes na aplicação</p>
-      </div>
+    <div className="space-y-8 p-4 sm:p-6 lg:p-8">
+      <Cabecalho
+        trilha={[{ rotulo: "Admin", href: "/admin" }, { rotulo: "Configurações" }]}
+        titulo="Configurações"
+        descricao="Linhas de produção, padrão de qualidade e saúde da plataforma."
+      />
 
-      <div className="rounded-lg border border-gray-200 bg-white p-6">
-        <p className="text-gray-400">
-          Essa função será desenvolvida em breve!
-        </p>
+      <div className="grid gap-6 lg:grid-cols-[14rem_minmax(0,1fr)]">
+        <nav aria-label="Seções de configurações" className="lg:sticky lg:top-8 lg:self-start">
+          <ul className="flex gap-1 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible lg:pb-0">
+            {SECOES.map(({ id, rotulo, icone: Icone }) => (
+              <li key={id} className="shrink-0">
+                <a
+                  href={`#${id}`}
+                  aria-current={id === atual.id ? "page" : undefined}
+                  className={cn(
+                    "flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium whitespace-nowrap transition-colors",
+                    id === atual.id ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  )}
+                >
+                  <Icone className="size-4 shrink-0" /> {rotulo}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+
+        <atual.Conteudo key={atual.id} />
       </div>
     </div>
   )

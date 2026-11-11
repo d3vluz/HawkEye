@@ -1,65 +1,92 @@
-# HawkEye
+<div align="center">
 
-[![Version](https://img.shields.io/badge/version-2.2.1-blue)](#)
-[![Status](https://img.shields.io/badge/status-active-success)](#)
-[![Linguagem](https://img.shields.io/badge/python-3.11-3776AB)](#)
-[![License](https://img.shields.io/badge/license-MIT-green)](#)
+  <img src="assets/logo_project.png" alt="HawkEye" width="140">
 
-## 📄 Visão Geral
+  <h3>HawkEye</h3>
+  <p><strong>Inspeção de qualidade por visão computacional</strong></p>
 
-O **HawkEye** é uma solução baseada em visão computacional desenvolvida para **inspeção automatizada de qualidade industrial**. O sistema processa imagens de linhas de produção (de pins) para identificar, classificar e medir componentes com precisão.
+  <p>
+    <img src="https://img.shields.io/badge/Next.js-000000?style=flat-square&logo=nextdotjs&logoColor=white" alt="Next.js">
+    <img src="https://img.shields.io/badge/NestJS-E0234E?style=flat-square&logo=nestjs&logoColor=white" alt="NestJS">
+    <img src="https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white" alt="FastAPI">
+    <img src="https://img.shields.io/badge/OpenCV-5C3EE8?style=flat-square&logo=opencv&logoColor=white" alt="OpenCV">
+    <img src="https://img.shields.io/badge/PostgreSQL-4169E1?style=flat-square&logo=postgresql&logoColor=white" alt="PostgreSQL">
+    <img src="https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker">
+    <img src="https://img.shields.io/badge/licença-MIT-blue?style=flat-square" alt="Licença MIT">
+  </p>
 
-Focado atualmente na análise de **hastes e pinos**, o HawkEye utiliza algoritmos de processamento de imagem para detectar deformidades, ausência de componentes e falhas dimensionais, fornecendo métricas detalhadas via dashboard.
-
-## ✨ Funcionalidades Principais
-
-* **Detecção de Pinos:** Contagem e classificação de pinos (válidos, danificados, cor incorreta).
-* **Análise de Hastes:** Verificação de linearidade, comprimento e largura via PCA.
-* **Inspeção de Caixas:** Validação de compartimentos e detecção de itens faltantes/extras.
-* **Gestão de Lotes:** Criação, processamento e histórico de lotes de inspeção.
-* **Dashboard Analítico:** Métricas de qualidade, score de aprovação e distribuição de defeitos.
-
-## 🛠 Tech Stack
-
-* **Backend:** Python 3.11, FastAPI
-* **Visão Computacional:** OpenCV, NumPy
-* **Banco de Dados & Storage:** Supabase (PostgreSQL)
-* **Frontend:** Next.js, Tailwind CSS, Recharts
-
-
-## 💻 Como Executar
-**Pré-requisitos**
-- Python 3.11+
-- Conta no Supabase (URL e Key)
+</div>
 
 ---
 
-**1) Clone o repositório**
-```bash
-git clone https://github.com/d3vluz/HawkEye.git
-cd hawkeye
-```
+Numa linha de produção, alguém precisa olhar cada caixa de componentes e conferir se está tudo certo: se nenhum pino falta, se nenhum está torto, quebrado ou com a cor errada, se a própria caixa não está danificada. É um trabalho repetitivo, cansativo e fácil de errar.
 
-**2) Execute o Launcher da aplicação**
-```bash
-# No Windows:
-.\iniciar.bat
-# No Linux:
-./launcher.sh
-```
+O **HawkEye** faz essa conferência a partir de uma foto. O operador envia as imagens do lote, o sistema aponta o que encontrou em cada compartimento e a pessoa só confirma (ou corrige) antes de registrar. Tudo fica guardado, e a gestão acompanha a qualidade de cada linha num painel.
 
-**3) Configure as Variáveis de Ambiente (Frontend)**
-```bash
-# Acesso a pasta "frontend" crie um .env e preencha as informações:
-NEXT_PUBLIC_SUPABASE_URL=sua_key_aqui
-NEXT_PUBLIC_SUPABASE_ANON_KEY=sua_key_aqui
-```
+## Como funciona
 
-**4) Configure as Variáveis de Ambiente (Backend)**
-```bash
-# Acesso a pasta "backend" crie um .env e preencha as informações:
-SUPABASE_URL="sua_key_aqui"
-SUPABASE_KEY="sua_key_aqui"
-```
+### 1. O operador envia as fotos do lote
 
-**5) Acesse: "localhost:3000"**
+Na tela de inspeção, o operador arrasta as capturas da caixa (até 10 por vez) e pede a análise.
+
+![Envio das imagens para inspeção](docs/imagens/inspecao.jpg)
+
+### 2. O sistema analisa cada imagem
+
+Cada foto passa por quatro verificações: a grade da caixa, os pinos, o conteúdo de cada compartimento e as hastes (as agulhas). Cada etapa gera uma imagem marcada mostrando o que foi visto.
+
+![Etapas da análise: grade, pinos, compartimentos e hastes](docs/imagens/pipeline.jpg)
+
+Quando algo está errado, a marcação aparece em vermelho:
+
+![Exemplos de defeitos detectados](docs/imagens/defeitos.jpg)
+
+### 3. Uma pessoa revisa antes de registrar
+
+Nada é salvo automaticamente. O operador vê o resultado de cada captura, pode corrigir o que o sistema errou e então registra o lote ou o descarta.
+
+![Revisão do lote antes do registro](docs/imagens/revisao.jpg)
+
+### 4. A gestão acompanha a qualidade
+
+O administrador vê a taxa de aprovação, os defeitos mais comuns, o desempenho de cada linha de produção e quem mais inspecionou.
+
+![Dashboard de qualidade](docs/imagens/dashboard.jpg)
+
+Cada lote pode ser aberto para ver captura por captura, com todas as camadas da análise:
+
+![Detalhe de um lote registrado](docs/imagens/detalhe-do-lote.jpg)
+
+## O que o sistema detecta
+
+| Defeito | O que significa |
+|---------|-----------------|
+| Pino faltando | Um compartimento está vazio |
+| Pino a mais | Mais de um pino no mesmo compartimento |
+| Cor errada | Pino fora da cor padrão |
+| Pino danificado | Corpo do pino deformado ou lascado |
+| Haste com defeito | Agulha quebrada, curta ou torta |
+| Dano estrutural | Divisória ausente ou grade diferente da esperada |
+
+> **Os critérios são configuráveis: o administrador escolhe quais defeitos reprovam uma captura e qual a meta de qualidade dos lotes.**
+
+## Resultados
+
+Medido em um conjunto de **668 imagens reais rotuladas**, o sistema dá o veredito certo (aprovar ou reprovar) em **93,4%** dos casos. Pinos ausentes, pinos a mais, cor errada e dano estrutural são acertados em 100% das imagens desses tipos. Os detalhes estão em [Visão computacional](docs/visao-computacional.md#resultados).
+
+As imagens usadas nos testes e nos prints vêm da categoria *pushpins* do [MVTec LOCO AD](https://www.mvtec.com/company/research/datasets/mvtec-loco), reorganizadas em 8 classes de defeito. A versão reorganizada está em [dataset.zip](https://github.com/d3vluz/HawkEye/releases) e segue a licença original do dataset (CC BY-NC-SA 4.0), não a licença MIT do código.
+
+## Documentação
+
+| Documento | Conteúdo |
+|-----------|----------|
+| [Arquitetura](docs/arquitetura.md) | Serviços, fluxo de uma inspeção, autenticação e decisões |
+| [Banco de dados](docs/banco-de-dados.md) | Tabelas, relações e regras de integridade |
+| [API](docs/api.md) | Rotas, perfis de acesso e formato das requisições |
+| [Visão computacional](docs/visao-computacional.md) | Como cada etapa da análise decide e como medir a acurácia |
+| [Frontend](docs/frontend.md) | Telas, organização do código e convenções |
+| [Desenvolvimento](docs/desenvolvimento.md) | Como rodar, variáveis de ambiente e problemas comuns |
+
+## Licença
+
+Projeto desenvolvido para fins de estudo. Licenciado sob a [MIT License](LICENSE).

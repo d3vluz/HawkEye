@@ -1,97 +1,110 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { ChevronRight } from "lucide-react"
-import KPICards from "@/components/dashboard/kpi-cards"
-import DefectRanking from "@/components/dashboard/defect-ranking"
-import QualityCharts from "@/components/dashboard/quality-charts"
-import BatchMetrics from "@/components/dashboard/batch-metrics"
-import { getDashboardMetrics, type DashboardMetrics } from "@/lib/supabase/dashboard-service"
+// Dashboard do admin: indicadores do período, tendência, defeitos, linhas, operadores e lotes recentes.
 
-export default function DashboardPage() {
-  const [dashboardData, setDashboardData] = useState<DashboardMetrics | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+import { useEffect, useState } from "react"
+import { Loader2, Package } from "lucide-react"
+import { Cabecalho } from "@/components/cabecalho"
+import { DefeitosPorTipo } from "@/components/dashboard/defeitos-por-tipo"
+import { Indicadores } from "@/components/dashboard/indicadores"
+import { LinhasDeProducao } from "@/components/dashboard/linhas-de-producao"
+import { LotesRecentes } from "@/components/dashboard/lotes-recentes"
+import { Operadores } from "@/components/dashboard/operadores"
+import { QualidadePorDia } from "@/components/dashboard/qualidade-por-dia"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { listarLinhas, metricasDoDashboard } from "@/lib/api"
+import { percentual, plural } from "@/lib/formato"
+import type { Linha, MetricasDoDashboard } from "@/types"
+
+const TODAS = "todas"
+const ATUALIZAR_A_CADA_MS = 30_000
+
+export default function PaginaDoDashboard() {
+  const [metricas, setMetricas] = useState<MetricasDoDashboard | null>(null)
+  const [erro, setErro] = useState<string | null>(null)
+  const [linhas, setLinhas] = useState<Linha[]>([])
+  const [filtro, setFiltro] = useState(TODAS)
+  const linha = filtro === TODAS ? undefined : filtro
 
   useEffect(() => {
-    const fetchDashboardData = async () => {
-      try {
-        setLoading(true)
-        const data = await getDashboardMetrics()
-        setDashboardData(data)
-        setError(null)
-      } catch (err) {
-        console.error('Erro ao carregar dashboard:', err)
-        setError(err instanceof Error ? err.message : "Erro ao carregar métricas")
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    fetchDashboardData()
-
-    const interval = setInterval(fetchDashboardData, 30000)
-    
-    return () => clearInterval(interval)
+    listarLinhas().then(setLinhas).catch(() => setLinhas([]))
   }, [])
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-12 h-12 border-4 border-slate-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-slate-600 font-medium">Carregando dashboard...</p>
-        </div>
-      </div>
-    )
-  }
+  useEffect(() => {
+    const carregar = () =>
+      metricasDoDashboard(linha)
+        .then((m) => { setMetricas(m); setErro(null) })
+        .catch((e: Error) => setErro(e.message))
+    carregar()
+    const intervalo = setInterval(carregar, ATUALIZAR_A_CADA_MS)
+    return () => clearInterval(intervalo)
+  }, [linha])
 
   return (
-    <div className="p-8">
-      {/* Header com Breadcrumb */}
-      <div className="mb-8">
-        <div className="flex items-center gap-2 text-xs font-medium text-gray-500 mb-3 tracking-wider">
-          <span>ADMIN</span>
-          <ChevronRight className="h-3 w-3 text-gray-500"/>
-          <span className="text-gray-700">DASHBOARD</span>
-        </div>
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Dashboard</h1>
-        <p className="text-gray-600 text-sm">Visualize métrica de todos os lotes de imagens processados pelo sistema</p>
-      </div>
+    <div className="space-y-8 p-4 sm:p-6 lg:p-8">
+      <Cabecalho
+        trilha={[{ rotulo: "Admin" }, { rotulo: "Dashboard" }]}
+        titulo="Dashboard"
+        descricao={
+          metricas
+            ? `Últimos ${metricas.periodDays} dias comparados com os ${metricas.periodDays} anteriores. Desde o início: ${plural(metricas.totals.batches, "lote", "lotes")}, ${plural(metricas.totals.captures, "captura", "capturas")} e ${percentual(metricas.totals.approvalRate)} de aprovação.`
+            : "Qualidade das inspeções registradas."
+        }
+        acoes={
+          <Select value={filtro} onValueChange={setFiltro}>
+            <SelectTrigger className="h-9 w-48" aria-label="Filtrar por linha">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={TODAS}>Todas as linhas</SelectItem>
+              {linhas.map((l) => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        }
+      />
 
-      {error && (
-        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+      {erro && (
+        <div role="alert" className="rounded-lg border border-danger/30 bg-danger/10 p-4 text-danger-emphasis">
           <p className="font-medium">Erro ao carregar dados</p>
-          <p className="text-sm">{error}</p>
+          <p className="text-sm">{erro}</p>
         </div>
       )}
 
-      {!dashboardData && !loading && (
-        <div className="mb-6 p-8 bg-blue-50 border border-blue-200 rounded-lg text-center">
-          <p className="text-blue-800 font-medium mb-2">Nenhum dado disponível</p>
-          <p className="text-blue-600 text-sm">Processe alguns lotes para visualizar as métricas</p>
+      {!metricas && !erro && (
+        <div className="flex min-h-[50vh] items-center justify-center">
+          <Loader2 className="size-12 animate-spin text-signal" aria-label="Carregando dashboard" />
         </div>
       )}
 
-      {/* KPI Cards */}
-      {dashboardData && <KPICards data={dashboardData} />}
+      {metricas && metricas.totals.batches === 0 && (
+        <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-card px-6 py-16 text-center">
+          <Package className="size-10 text-muted-foreground" />
+          <p className="mt-4 font-medium text-foreground">{linha ? "Esta linha ainda não tem lotes registrados" : "Nenhum lote registrado ainda"}</p>
+          <p className="mt-1 max-w-sm text-sm text-pretty text-muted-foreground">
+            As métricas aparecem quando um funcionário registra o primeiro lote na inspeção.
+          </p>
+          {linha && (
+            <button onClick={() => setFiltro(TODAS)} className="mt-4 text-sm font-medium text-primary-emphasis hover:underline">
+              Ver todas as linhas
+            </button>
+          )}
+        </div>
+      )}
 
-      {/* Charts and Rankings Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-8">
-        {dashboardData && (
-          <>
-            <div className="lg:col-span-2">
-              <QualityCharts data={dashboardData} />
-            </div>
-            <div>
-              <DefectRanking data={dashboardData} />
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* Batch Metrics */}
-      {dashboardData && <BatchMetrics data={dashboardData} />}
+      {metricas && metricas.totals.batches > 0 && (
+        <div className="space-y-6">
+          <Indicadores metricas={metricas} />
+          <div className="grid gap-6 xl:grid-cols-3">
+            <QualidadePorDia metricas={metricas} />
+            <DefeitosPorTipo metricas={metricas} />
+          </div>
+          <div className="grid gap-6 lg:grid-cols-2">
+            <LinhasDeProducao metricas={metricas} linhaSelecionada={linha} />
+            <Operadores metricas={metricas} />
+          </div>
+          <LotesRecentes metricas={metricas} />
+        </div>
+      )}
     </div>
   )
 }

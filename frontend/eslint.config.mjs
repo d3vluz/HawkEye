@@ -12,6 +12,10 @@ const compat = new FlatCompat({
 const eslintConfig = [
   ...compat.extends("next/core-web-vitals", "next/typescript"),
   {
+    // "_" no início marca a variável descartada de propósito ao separar campos com rest.
+    rules: { "@typescript-eslint/no-unused-vars": ["warn", { varsIgnorePattern: "^_", argsIgnorePattern: "^_" }] },
+  },
+  {
     ignores: [
       "node_modules/**",
       ".next/**",
