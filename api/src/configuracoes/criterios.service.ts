@@ -1,65 +1,53 @@
-// Critérios de inspeção (linha única no banco) e a regra que decide se uma captura é aprovada.
+// Critérios de inspeção em versões imutáveis: salvar cria uma versão nova, e cada lote guarda a versão com que foi julgado.
 
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { InspectionSettings } from '@prisma/client';
+import { InspectionCriteria } from '@prisma/client';
 import { BancoService } from '../banco/banco.service';
 import { NovosCriterios } from './dto';
 
-const ID_DOS_CRITERIOS = 1;
-
-export interface DefeitosDaCaptura {
-  linhasDaGrade?: number;
-  colunasDaGrade?: number;
+export interface GradeObservada {
+  linhas?: number;
+  colunas?: number;
   compartimentos: number;
-  pinoFaltando: boolean;
-  pinoAMais: boolean;
-  pinoDanificado: boolean;
-  corErrada: boolean;
-  hasteComDefeito: boolean;
-  estruturaCorrigida?: boolean;
 }
+
+const COM_AUTOR = { createdBy: { select: { matricula: true } } } as const;
 
 @Injectable()
 export class CriteriosService {
   constructor(private banco: BancoService) {}
 
-  ler() {
-    return this.banco.inspectionSettings.upsert({ where: { id: ID_DOS_CRITERIOS }, create: { id: ID_DOS_CRITERIOS }, update: {} });
+  async vigentes() {
+    const ultima = await this.banco.inspectionCriteria.findFirst({ orderBy: { id: 'desc' }, include: COM_AUTOR });
+    return ultima ?? this.banco.inspectionCriteria.create({ data: {}, include: COM_AUTOR });
   }
 
-  salvar(dados: NovosCriterios, matriculaDeQuemSalvou: string | null) {
+  async ler() {
+    return this.paraResposta(await this.vigentes());
+  }
+
+  async salvar(dados: NovosCriterios, quemSalvouId: string) {
     if ((dados.expectedRows === null) !== (dados.expectedCols === null)) {
       throw new BadRequestException('Informe linhas e colunas juntas, ou deixe as duas em branco');
     }
-    const registro = { ...dados, updatedByMatricula: matriculaDeQuemSalvou };
-    return this.banco.inspectionSettings.upsert({
-      where: { id: ID_DOS_CRITERIOS },
-      create: { id: ID_DOS_CRITERIOS, ...registro },
-      update: registro,
-    });
+    const versao = await this.banco.inspectionCriteria.create({ data: { ...dados, createdById: quemSalvouId }, include: COM_AUTOR });
+    return this.paraResposta(versao);
   }
 
-  veredito(criterios: InspectionSettings, defeitos: DefeitosDaCaptura) {
-    const danoEstrutural = defeitos.estruturaCorrigida ?? this.temDanoEstrutural(criterios, defeitos);
-    const reprovada =
-      (criterios.rejectMissingPins && defeitos.pinoFaltando) ||
-      (criterios.rejectExtraPins && defeitos.pinoAMais) ||
-      (criterios.rejectDamagedPins && defeitos.pinoDanificado) ||
-      (criterios.rejectWrongColorPins && defeitos.corErrada) ||
-      (criterios.rejectShaftDefects && defeitos.hasteComDefeito) ||
-      (criterios.rejectStructureDamage && danoEstrutural);
-    return { aprovada: !reprovada, danoEstrutural };
-  }
-
-  private temDanoEstrutural(criterios: InspectionSettings, defeitos: DefeitosDaCaptura) {
+  // Compartimentos unidos (divisória ausente) ou grade diferente da esperada contam como dano estrutural.
+  danoEstrutural(criterios: InspectionCriteria, grade: GradeObservada) {
     const { expectedRows, expectedCols } = criterios;
-    const { linhasDaGrade, colunasDaGrade, compartimentos } = defeitos;
     const temGradeEsperada = expectedRows !== null && expectedCols !== null;
-    if (linhasDaGrade === undefined || colunasDaGrade === undefined) {
-      return temGradeEsperada && compartimentos !== expectedRows! * expectedCols!;
+    if (grade.linhas === undefined || grade.colunas === undefined) {
+      return temGradeEsperada && grade.compartimentos !== expectedRows * expectedCols;
     }
-    const compartimentosUnidos = compartimentos < linhasDaGrade * colunasDaGrade;
-    const gradeDiferente = temGradeEsperada && (linhasDaGrade !== expectedRows || colunasDaGrade !== expectedCols);
+    const compartimentosUnidos = grade.compartimentos < grade.linhas * grade.colunas;
+    const gradeDiferente = temGradeEsperada && (grade.linhas !== expectedRows || grade.colunas !== expectedCols);
     return compartimentosUnidos || gradeDiferente;
+  }
+
+  // Mantém as chaves que o frontend já usa: a data e o autor da versão aparecem como "última alteração".
+  private paraResposta({ createdAt, createdBy, createdById: _autor, ...criterios }: InspectionCriteria & { createdBy: { matricula: string } | null }) {
+    return { ...criterios, updatedAt: createdAt, updatedByMatricula: createdBy?.matricula ?? null };
   }
 }

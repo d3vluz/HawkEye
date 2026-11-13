@@ -1,7 +1,7 @@
 // Corpos aceitos pelas rotas de membros e linhas de produção.
 
 import { Transform } from 'class-transformer';
-import { IsArray, IsBoolean, IsEmail, IsIn, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import { IsArray, IsBoolean, IsEmail, IsIn, IsOptional, IsString, IsUUID, Matches, MaxLength, MinLength } from 'class-validator';
 
 function apenasDigitos(valor: unknown) {
   if (typeof valor !== 'string') return valor;
@@ -21,7 +21,7 @@ export class NovoMembro {
   @IsOptional() @Telefone() phone?: string | null;
   @IsString() @MinLength(8) @MaxLength(128) temporaryPassword: string;
   @IsOptional() @IsBoolean() allUnits?: boolean;
-  @IsOptional() @IsArray() @IsString({ each: true }) unitIds?: string[];
+  @IsOptional() @IsArray() @IsUUID('all', { each: true }) unitIds?: string[];
 }
 
 export class AlteracaoDeMembro {
@@ -29,7 +29,7 @@ export class AlteracaoDeMembro {
   @IsOptional() @IsEmail() email?: string | null;
   @IsOptional() @Telefone() phone?: string | null;
   @IsOptional() @IsBoolean() allUnits?: boolean;
-  @IsOptional() @IsArray() @IsString({ each: true }) unitIds?: string[];
+  @IsOptional() @IsArray() @IsUUID('all', { each: true }) unitIds?: string[];
   @IsOptional() @IsIn(['ACTIVE', 'INACTIVE']) status?: 'ACTIVE' | 'INACTIVE';
   @IsOptional() @IsIn(['ADMIN', 'EMPLOYEE']) role?: 'ADMIN' | 'EMPLOYEE';
 }

@@ -16,7 +16,7 @@ import { Visualizador } from "@/components/revisao/visualizador"
 import { Button } from "@/components/ui/button"
 import { descartarLote, lerCriterios, minhasLinhas, registrarLote } from "@/lib/api"
 import {
-  camadaDoDefeito, corrigir, defeitosDetectados, listaDeCorrecoes, quantidadeDeDefeitos, verificacoesReprovadas,
+  camadaDoDefeito, contagensDetectadas, corrigir, defeitosDetectados, verificacoesReprovadas,
   type Correcoes,
 } from "@/lib/defeitos"
 import { useSetas } from "@/lib/use-setas"
@@ -145,20 +145,19 @@ export default function PaginaDeRevisao() {
       unit_id: linhaId,
       description: observacoes,
       batch_timestamp: analises[0].timestamp,
-      captures: revisoes.map(({ analise, detectados, minhas, finais }) => ({
+      captures: revisoes.map(({ analise, minhas, finais }) => ({
         filename: analise.filename,
         sha256: analise.sha256,
         areas_detected: analise.areas_count,
         grid_rows: analise.grid_rows,
         grid_cols: analise.grid_cols,
-        defects_count: quantidadeDeDefeitos(analise, finais, detectados),
+        detected_counts: contagensDetectadas(analise),
         has_missing_pins: finais.missing,
         has_extra_pins: finais.extra,
         has_damaged_pins: finais.damaged,
         has_wrong_color_pins: finais.wrongColor,
         has_shaft_defects: finais.shaft,
         structure_override: minhas?.structure,
-        corrections: listaDeCorrecoes(detectados, minhas),
       })),
     }), "/coletas")
 

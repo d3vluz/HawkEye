@@ -54,10 +54,6 @@ export class ArmazenamentoService {
     }
   }
 
-  async apagarPorUrl(urls: Array<string | null>, bucket: string): Promise<void> {
-    await this.apagarChaves(urls.flatMap((url) => url?.split(`/${bucket}/`)[1] || []), bucket);
-  }
-
   async apagarPasta(pasta: string, bucket: string): Promise<void> {
     const objetos = await this.listar(bucket, `${pasta}/`);
     await this.apagarChaves(objetos.flatMap((o) => o.Key ?? []), bucket);

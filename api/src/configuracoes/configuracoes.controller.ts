@@ -22,7 +22,7 @@ export class ConfiguracoesController {
 
   @Put('inspection')
   salvarCriterios(@Body() dados: NovosCriterios, @MembroAtual() membro: MembroDaSessao) {
-    return this.criterios.salvar(dados, membro.matricula);
+    return this.criterios.salvar(dados, membro.id);
   }
 
   @Get('storage')

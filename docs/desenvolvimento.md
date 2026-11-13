@@ -22,7 +22,10 @@ docker compose up --build
 | [http://localhost:8000/health](http://localhost:8000/health) | Healthcheck da API |
 | [http://localhost:9001](http://localhost:9001) | Console do MinIO (`MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY`) |
 
-No primeiro startup a API cria as tabelas, as linhas de produção A, B e C e duas contas locais: `admin` / `admin` e `user` / `user`.
+No primeiro startup a API aplica as migrations do banco e cria as linhas de produção A, B e C e duas contas locais: `admin` / `admin` e `user` / `user`.
+
+O schema do banco evolui só por migrations versionadas. Para mudar uma tabela, veja [Banco de dados › Migrations](banco-de-dados.md#migrations).
+
 ## Modo de desenvolvimento
 
 Para editar código com recarga automática, use a sobreposição `docker-compose.dev.yml`:

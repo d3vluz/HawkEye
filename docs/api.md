@@ -127,21 +127,22 @@ O admin não pode alterar o próprio perfil ou status nem remover a própria con
       "areas_detected": 15,
       "grid_rows": 3,
       "grid_cols": 5,
-      "defects_count": 2,
+      "detected_counts": { "missing": 1, "extra": 0, "wrongColor": 0, "damaged": 0, "shaft": 0 },
       "has_missing_pins": true,
       "has_extra_pins": false,
       "has_damaged_pins": false,
       "has_wrong_color_pins": true,
       "has_shaft_defects": false,
-      "structure_override": false,
-      "corrections": [{ "defect": "wrongColor", "detected": false, "corrected": true }]
+      "structure_override": false
     }
   ]
 }
 ```
 
-- Os campos `has_*` são os defeitos finais, já com as correções do operador. `structure_override` só vai quando o operador corrigiu a estrutura.
-- A API recalcula o veredito de cada captura com os critérios do banco; nenhum veredito enviado pelo navegador é usado.
+- `detected_counts` é o que o sistema detectou, antes da revisão. Os campos `has_*` são os defeitos finais, já com as correções do operador. `structure_override` só vai quando o operador corrigiu a estrutura; o dano estrutural detectado é calculado pela API a partir da grade.
+- No exemplo, o operador marcou cor errada (`has_wrong_color_pins: true`) que o sistema não tinha detectado (`wrongColor: 0`). A correção é derivada dessa diferença; o navegador não envia lista de correções nem total de defeitos.
+- O navegador não envia veredito: a API grava os defeitos e a versão dos critérios usada, e calcula o veredito a cada leitura.
+- Registrar duas vezes o mesmo `batch_timestamp` devolve `409`.
 - O autor é sempre o da sessão, e o funcionário precisa ter acesso à linha informada.
 
 ### Lote
@@ -164,6 +165,8 @@ Listas, coletas, detalhe e dashboard usam o mesmo formato de lote:
 }
 ```
 
-O detalhe devolve `{ batch, captures }`. Cada captura traz as URLs no bucket `permanent`, `is_valid`, `defects_count`, `corrections` e os defeitos agrupados em `defects: { missing, extra, wrongColor, damaged, shaft, structure }`.
+O detalhe devolve `{ batch, captures }`. Cada captura traz as URLs no bucket `permanent`, `is_valid`, `defects_count`, `corrections` e os defeitos agrupados em `defects: { missing, extra, wrongColor, damaged, shaft, structure }`. Nenhum desses campos é gravado: todos são calculados a partir das tabelas `capture_defects` e `inspection_criteria` (veja [Banco de dados › Normalização](banco-de-dados.md#normalização)).
+
+Ids de lotes, membros e linhas são UUID; um id em formato inválido na URL devolve `400`.
 
 Os tipos correspondentes no frontend estão em [`frontend/types/index.ts`](../frontend/types/index.ts).

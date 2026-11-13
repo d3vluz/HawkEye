@@ -1,8 +1,9 @@
 // Números do dashboard: período atual (30 dias) contra o anterior, série diária, defeitos, linhas, operadores e lotes recentes.
 
 import { Injectable } from '@nestjs/common';
+import { DefectType } from '@prisma/client';
 import { BancoService } from '../banco/banco.service';
-import { loteResumido, nomesDosAutores, percentual } from '../comum/lotes';
+import { LOTE_COMPLETO, LoteCompleto, loteResumido, percentual, totaisDoLote } from '../comum/lotes';
 import { CriteriosService } from '../configuracoes/criterios.service';
 
 const DIAS_DO_PERIODO = 30;
@@ -10,25 +11,16 @@ const DIA_MS = 24 * 60 * 60 * 1000;
 // Os dias do gráfico seguem o relógio da fábrica, não o UTC do container.
 const chaveDoDia = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' });
 
-const TIPOS_DE_DEFEITO = [
-  { key: 'missingPins', label: 'Pino ausente', field: 'hasMissingPins' },
-  { key: 'extraPins', label: 'Pino extra', field: 'hasExtraPins' },
-  { key: 'damagedPins', label: 'Pino danificado', field: 'hasDamagedPins' },
-  { key: 'wrongColorPins', label: 'Cor incorreta', field: 'hasWrongColorPins' },
-  { key: 'structureDamage', label: 'Dano estrutural', field: 'hasStructureDamage' },
-  { key: 'shaftDefects', label: 'Defeito na haste', field: 'hasShaftDefects' },
-] as const;
+const TIPOS_DE_DEFEITO: Array<{ key: string; label: string; tipo: DefectType }> = [
+  { key: 'missingPins', label: 'Pino ausente', tipo: 'MISSING' },
+  { key: 'extraPins', label: 'Pino extra', tipo: 'EXTRA' },
+  { key: 'damagedPins', label: 'Pino danificado', tipo: 'DAMAGED' },
+  { key: 'wrongColorPins', label: 'Cor incorreta', tipo: 'WRONG_COLOR' },
+  { key: 'structureDamage', label: 'Dano estrutural', tipo: 'STRUCTURE' },
+  { key: 'shaftDefects', label: 'Defeito na haste', tipo: 'SHAFT' },
+];
 
-type CampoDeDefeito = (typeof TIPOS_DE_DEFEITO)[number]['field'];
-type Captura = { isValid: boolean; defectsCount: number } & Record<CampoDeDefeito, boolean>;
-type Lote = {
-  createdAt: Date;
-  unitId: string | null;
-  authorMatricula: string | null;
-  totalCaptures: number;
-  validCaptures: number;
-  captures: Captura[];
-};
+type Totais = ReturnType<typeof totaisDoLote>;
 
 class Acumulado {
   lotes = 0;
@@ -36,17 +28,16 @@ class Acumulado {
   aprovadas = 0;
   defeitos = 0;
   abaixoDaMeta = 0;
-  porTipo = Object.fromEntries(TIPOS_DE_DEFEITO.map((d) => [d.field, 0])) as Record<CampoDeDefeito, number>;
+  porTipo = Object.fromEntries(TIPOS_DE_DEFEITO.map((d) => [d.tipo, 0])) as Record<DefectType, number>;
 
-  somar(lote: Lote, abaixoDaMeta: boolean) {
+  somar(totais: Totais, abaixoDaMeta: boolean) {
     this.lotes += 1;
-    this.capturas += lote.totalCaptures;
-    this.aprovadas += lote.validCaptures;
+    this.capturas += totais.capturas;
+    this.aprovadas += totais.aprovadas;
+    this.defeitos += totais.defeitos;
     if (abaixoDaMeta) this.abaixoDaMeta += 1;
-    for (const captura of lote.captures) {
-      this.defeitos += captura.defectsCount;
-      for (const { field } of TIPOS_DE_DEFEITO) if (captura[field]) this.porTipo[field] += 1;
-    }
+    // Conta capturas com cada defeito, não ocorrências.
+    for (const tipos of totais.tiposPorCaptura) for (const tipo of new Set(tipos)) this.porTipo[tipo] += 1;
   }
 
   resumo() {
@@ -60,9 +51,9 @@ class Acumulado {
   }
 }
 
-function somarEm<K>(mapa: Map<K, Acumulado>, chave: K, lote: Lote, abaixoDaMeta: boolean) {
+function somarEm<K>(mapa: Map<K, Acumulado>, chave: K, totais: Totais, abaixoDaMeta: boolean) {
   const acumulado = mapa.get(chave) ?? new Acumulado();
-  acumulado.somar(lote, abaixoDaMeta);
+  acumulado.somar(totais, abaixoDaMeta);
   mapa.set(chave, acumulado);
 }
 
@@ -79,60 +70,53 @@ export class MetricasService {
     const dias = Array.from({ length: DIAS_DO_PERIODO * 2 }, (_, i) => chaveDoDia.format(new Date(agora - i * DIA_MS)));
     const indiceDoDia = new Map(dias.map((dia, i) => [dia, i]));
 
-    const [criterios, lotesDaJanela, linhas, historico, recentes] = await Promise.all([
-      this.criterios.ler(),
+    const [criterios, lotesDaJanela, linhas, historico] = await Promise.all([
+      this.criterios.vigentes(),
       this.banco.batch.findMany({
         where: { createdAt: { gte: new Date(agora - (DIAS_DO_PERIODO * 2 + 1) * DIA_MS) } },
-        select: {
-          createdAt: true, unitId: true, authorMatricula: true, totalCaptures: true, validCaptures: true,
-          captures: { select: { isValid: true, defectsCount: true, ...Object.fromEntries(TIPOS_DE_DEFEITO.map((d) => [d.field, true])) } },
-        },
-      }) as Promise<Lote[]>,
-      this.banco.unit.findMany({ orderBy: { name: 'asc' }, select: { id: true, name: true } }),
-      this.banco.batch.aggregate({ where: { unitId: linhaId }, _count: true, _sum: { totalCaptures: true, validCaptures: true } }),
-      this.banco.batch.findMany({
-        where: { unitId: linhaId },
-        take: 8,
-        orderBy: { createdAt: 'desc' },
-        include: { unit: { select: { id: true, name: true } }, captures: { select: { defectsCount: true } } },
+        include: LOTE_COMPLETO,
       }),
+      this.banco.unit.findMany({ orderBy: { name: 'asc' }, select: { id: true, name: true } }),
+      this.banco.batch.findMany({ where: { unitId: linhaId }, orderBy: { createdAt: 'desc' }, include: LOTE_COMPLETO }),
     ]);
 
     const meta = criterios.minQualityScore;
-    const abaixoDaMeta = (l: Lote) => l.totalCaptures > 0 && (l.validCaptures / l.totalCaptures) * 100 < meta;
+    const abaixoDaMeta = (t: Totais) => t.capturas > 0 && (t.aprovadas / t.capturas) * 100 < meta;
     const porDia = Array.from({ length: DIAS_DO_PERIODO }, () => ({ capturas: 0, aprovadas: 0, defeitos: 0 }));
     const atual = new Acumulado();
     const anterior = new Acumulado();
-    const porLinha = new Map<string | null, Acumulado>();
-    const porAutor = new Map<string, Acumulado>();
+    const geral = new Acumulado();
+    const porLinha = new Map<string, Acumulado>();
+    const porAutor = new Map<string, { autor: LoteCompleto['author']; acumulado: Acumulado }>();
+
+    for (const lote of historico) geral.somar(totaisDoLote(lote), false);
 
     for (const lote of lotesDaJanela) {
       const indice = indiceDoDia.get(chaveDoDia.format(lote.createdAt));
       if (indice === undefined) continue;
+      const totais = totaisDoLote(lote);
       const noPeriodoAtual = indice < DIAS_DO_PERIODO;
       // A comparação entre linhas ignora o filtro de linha, para mostrar todas lado a lado.
-      if (noPeriodoAtual) somarEm(porLinha, lote.unitId, lote, abaixoDaMeta(lote));
+      if (noPeriodoAtual) somarEm(porLinha, lote.unitId, totais, abaixoDaMeta(totais));
       if (linhaId && lote.unitId !== linhaId) continue;
 
-      (noPeriodoAtual ? atual : anterior).somar(lote, abaixoDaMeta(lote));
+      (noPeriodoAtual ? atual : anterior).somar(totais, abaixoDaMeta(totais));
       if (!noPeriodoAtual) continue;
-      porDia[indice].capturas += lote.totalCaptures;
-      porDia[indice].aprovadas += lote.validCaptures;
-      porDia[indice].defeitos += lote.captures.reduce((soma, c) => soma + c.defectsCount, 0);
-      if (lote.authorMatricula) somarEm(porAutor, lote.authorMatricula, lote, abaixoDaMeta(lote));
+      porDia[indice].capturas += totais.capturas;
+      porDia[indice].aprovadas += totais.aprovadas;
+      porDia[indice].defeitos += totais.defeitos;
+      const doAutor = porAutor.get(lote.authorId) ?? { autor: lote.author, acumulado: new Acumulado() };
+      doAutor.acumulado.somar(totais, abaixoDaMeta(totais));
+      porAutor.set(lote.authorId, doAutor);
     }
 
-    const maisAtivos = [...porAutor.entries()].sort((a, b) => b[1].capturas - a[1].capturas).slice(0, 5);
-    const nomes = await nomesDosAutores(this.banco, [...maisAtivos.map(([m]) => m), ...recentes.map((l) => l.authorMatricula)]);
+    const maisAtivos = [...porAutor.values()].sort((a, b) => b.acumulado.capturas - a.acumulado.capturas).slice(0, 5);
+    const totalGeral = geral.resumo();
 
     return {
       periodDays: DIAS_DO_PERIODO,
       qualityTarget: meta,
-      totals: {
-        batches: historico._count,
-        captures: historico._sum.totalCaptures ?? 0,
-        approvalRate: percentual(historico._sum.validCaptures ?? 0, historico._sum.totalCaptures ?? 0),
-      },
+      totals: { batches: totalGeral.batches, captures: totalGeral.captures, approvalRate: totalGeral.approvalRate },
       current: atual.resumo(),
       previous: anterior.resumo(),
       series: porDia.reverse().map((dia, i) => ({
@@ -141,19 +125,16 @@ export class MetricasService {
         approvalRate: percentual(dia.aprovadas, dia.capturas),
         defectsPerCapture: dia.capturas > 0 ? dia.defeitos / dia.capturas : null,
       })),
-      defectsByType: TIPOS_DE_DEFEITO.map(({ key, label, field }) => ({
+      defectsByType: TIPOS_DE_DEFEITO.map(({ key, label, tipo }) => ({
         key,
         label,
-        captures: atual.porTipo[field],
-        share: percentual(atual.porTipo[field], atual.capturas),
-        previousShare: percentual(anterior.porTipo[field], anterior.capturas),
+        captures: atual.porTipo[tipo],
+        share: percentual(atual.porTipo[tipo], atual.capturas),
+        previousShare: percentual(anterior.porTipo[tipo], anterior.capturas),
       })).sort((a, b) => b.captures - a.captures),
-      units: [
-        ...linhas.map((l) => ({ id: l.id, name: l.name, ...(porLinha.get(l.id) ?? new Acumulado()).resumo() })),
-        ...(porLinha.has(null) ? [{ id: null, name: 'Sem linha', ...porLinha.get(null)!.resumo() }] : []),
-      ],
-      operators: maisAtivos.map(([matricula, acumulado]) => ({ matricula, name: nomes.get(matricula) ?? null, ...acumulado.resumo() })),
-      recentBatches: recentes.map((l) => loteResumido(l, nomes, l.captures.reduce((soma, c) => soma + c.defectsCount, 0))),
+      units: linhas.map((l) => ({ id: l.id, name: l.name, ...(porLinha.get(l.id) ?? new Acumulado()).resumo() })),
+      operators: maisAtivos.map(({ autor, acumulado }) => ({ ...autor, ...acumulado.resumo() })),
+      recentBatches: historico.slice(0, 8).map(loteResumido),
     };
   }
 }

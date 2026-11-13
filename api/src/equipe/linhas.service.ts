@@ -21,16 +21,20 @@ export class LinhasService implements OnModuleInit {
     });
 
     const membrosPorLinha = await Promise.all(
-      linhas.map((linha) => this.banco.member.count({ where: { OR: [{ allUnits: true }, { units: { some: { id: linha.id } } }] } })),
+      linhas.map((linha) => this.banco.member.count({
+        where: { status: 'ACTIVE', OR: [{ allUnits: true }, { units: { some: { unitId: linha.id } } }] },
+      })),
     );
     return linhas.map(({ _count, ...linha }, i) => ({ ...linha, memberCount: membrosPorLinha[i], batchCount: _count.batches }));
   }
 
   async doMembro(membroId: string) {
-    const membro = await this.banco.member.findUnique({ where: { id: membroId }, include: { units: true } });
+    const membro = await this.banco.member.findUnique({ where: { id: membroId }, select: { allUnits: true } });
     if (!membro) return [];
-    if (membro.allUnits) return this.banco.unit.findMany({ orderBy: { name: 'asc' } });
-    return membro.units.sort((a, b) => a.name.localeCompare(b.name));
+    return this.banco.unit.findMany({
+      where: membro.allUnits ? undefined : { members: { some: { memberId: membroId } } },
+      orderBy: { name: 'asc' },
+    });
   }
 
   async criar(nome: string) {

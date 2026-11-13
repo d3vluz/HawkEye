@@ -1,6 +1,6 @@
 // Rota do dashboard do admin, com filtro opcional por linha de produção.
 
-import { Controller, Get, Module, Query } from '@nestjs/common';
+import { Controller, Get, Module, ParseUUIDPipe, Query } from '@nestjs/common';
 import { Perfis } from '../autenticacao/decoradores';
 import { ConfiguracoesModule } from '../configuracoes/configuracoes.controller';
 import { MetricasService } from './metricas.service';
@@ -11,7 +11,7 @@ export class MetricasController {
   constructor(private readonly metricas: MetricasService) {}
 
   @Get('dashboard')
-  dashboard(@Query('unitId') linhaId?: string) {
+  dashboard(@Query('unitId', new ParseUUIDPipe({ optional: true })) linhaId?: string) {
     return this.metricas.dashboard(linhaId || undefined);
   }
 }

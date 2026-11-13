@@ -1,3 +1,6 @@
+// Modelo em 3ª forma normal: nada que possa ser calculado fica gravado.
+// O veredito, os totais do lote, a contagem de defeitos e as URLs das imagens são derivados pela API.
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -7,108 +10,143 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Batch {
-  id              String    @id @default(uuid())
-  name            String
-  description     String?
-  createdAt       DateTime  @default(now())
-  totalCaptures   Int       @default(0)
-  validCaptures   Int       @default(0)
-  invalidCaptures Int       @default(0)
+enum MemberRole {
+  ADMIN
+  EMPLOYEE
 
-  // Sem chave estrangeira: a matrícula precisa continuar no lote após excluir o membro.
-  authorMatricula String?
-
-  // Restrict: uma linha com lotes não pode sumir, senão as métricas por linha perdem a origem.
-  unitId String?
-  unit   Unit?   @relation(fields: [unitId], references: [id], onDelete: Restrict)
-
-  captures Capture[]
-
-  @@index([authorMatricula, createdAt])
-  @@index([unitId, createdAt])
-}
-
-model Capture {
-  id      String @id @default(uuid())
-  batchId String
-  batch   Batch  @relation(fields: [batchId], references: [id], onDelete: Cascade)
-
-  filename          String
-  sha256            String   @unique
-  originalUri       String
-  processedUri      String?
-  processedAreasUri String?
-  processedPinsUri  String?
-  processedShaftUri String?
-
-  isValid      Boolean @default(false)
-  defectsCount Int     @default(0)
-
-  hasMissingPins    Boolean @default(false)
-  hasExtraPins      Boolean @default(false)
-  hasDamagedPins    Boolean @default(false)
-  hasWrongColorPins Boolean @default(false)
-  hasStructureDamage Boolean @default(false)
-  hasShaftDefects   Boolean @default(false)
-
-  // Defeitos que o operador corrigiu na revisão: [{ defect, detected, corrected }].
-  corrections Json?
-
-  createdAt DateTime @default(now())
+  @@map("member_role")
 }
 
 enum MemberStatus {
   ACTIVE
   INACTIVE
+
+  @@map("member_status")
 }
 
-enum MemberRole {
-  ADMIN
-  EMPLOYEE
+enum DefectType {
+  MISSING
+  EXTRA
+  WRONG_COLOR
+  DAMAGED
+  SHAFT
+  STRUCTURE
+
+  @@map("defect_type")
 }
 
 model Unit {
-  id        String   @id @default(uuid())
-  name      String
-  createdAt DateTime @default(now())
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
 
-  members Member[]
+  members MemberUnit[]
   batches Batch[]
+
+  @@map("production_lines")
 }
 
 model Member {
-  id           String       @id @default(uuid())
-  name         String
-  matricula    String?      @unique
-  email        String?      @unique
-  phone        String?
-  githubUsername String?
-  role         MemberRole   @default(EMPLOYEE)
-  status       MemberStatus @default(ACTIVE)
-  allUnits     Boolean      @default(false)
-  lastAccessAt DateTime?
-  createdAt    DateTime     @default(now())
+  id             String       @id @default(uuid()) @db.Uuid
+  name           String
+  matricula      String       @unique
+  email          String?      @unique
+  phone          String?
+  githubUsername String?      @map("github_username")
+  role           MemberRole   @default(EMPLOYEE)
+  // Exclusão lógica: membros com lotes não podem sumir, senão o lote perde o autor.
+  status         MemberStatus @default(ACTIVE)
+  allUnits       Boolean      @default(false) @map("all_units")
+  lastAccessAt   DateTime?    @map("last_access_at")
+  createdAt      DateTime     @default(now()) @map("created_at")
 
-  passwordHash       String?
-  mustChangePassword Boolean @default(true)
-  tokenVersion       Int     @default(0)
+  passwordHash       String? @map("password_hash")
+  mustChangePassword Boolean @default(true) @map("must_change_password")
+  tokenVersion       Int     @default(0) @map("token_version")
 
-  units Unit[]
+  units            MemberUnit[]
+  batches          Batch[]
+  criteriaVersions InspectionCriteria[]
+
+  @@map("members")
 }
 
-// Linha única (id = 1): os critérios valem para o sistema inteiro.
-model InspectionSettings {
-  id                    Int      @id @default(1)
-  expectedRows          Int?
-  expectedCols          Int?
-  minQualityScore       Int      @default(80)
-  rejectMissingPins     Boolean  @default(true)
-  rejectExtraPins       Boolean  @default(true)
-  rejectDamagedPins     Boolean  @default(true)
-  rejectWrongColorPins  Boolean  @default(true)
-  rejectStructureDamage Boolean  @default(true)
-  rejectShaftDefects    Boolean  @default(true)
-  updatedAt             DateTime @updatedAt
-  updatedByMatricula    String?
+model MemberUnit {
+  memberId String @map("member_id") @db.Uuid
+  unitId   String @map("production_line_id") @db.Uuid
+  member   Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  unit     Unit   @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  @@id([memberId, unitId])
+  @@map("member_production_lines")
+}
+
+// Cada alteração cria uma versão nova; o lote aponta para a versão com que foi julgado.
+model InspectionCriteria {
+  id                    Int      @id @default(autoincrement())
+  expectedRows          Int?     @map("expected_rows")
+  expectedCols          Int?     @map("expected_cols")
+  minQualityScore       Int      @default(80) @map("min_quality_score")
+  rejectMissingPins     Boolean  @default(true) @map("reject_missing_pins")
+  rejectExtraPins       Boolean  @default(true) @map("reject_extra_pins")
+  rejectDamagedPins     Boolean  @default(true) @map("reject_damaged_pins")
+  rejectWrongColorPins  Boolean  @default(true) @map("reject_wrong_color_pins")
+  rejectStructureDamage Boolean  @default(true) @map("reject_structure_damage")
+  rejectShaftDefects    Boolean  @default(true) @map("reject_shaft_defects")
+  createdAt             DateTime @default(now()) @map("created_at")
+  createdById           String?  @map("created_by_id") @db.Uuid
+  createdBy             Member?  @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  batches Batch[]
+
+  @@map("inspection_criteria")
+}
+
+model Batch {
+  id            String   @id @default(uuid()) @db.Uuid
+  name          String
+  description   String?
+  createdAt     DateTime @default(now()) @map("created_at")
+  // Pasta do lote no bucket permanent; as URLs das imagens são montadas a partir dela.
+  storageFolder String   @unique @map("storage_folder")
+
+  authorId   String             @map("author_id") @db.Uuid
+  author     Member             @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  // Restrict: uma linha com lotes não pode sumir, senão as métricas por linha perdem a origem.
+  unitId     String             @map("production_line_id") @db.Uuid
+  unit       Unit               @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  criteriaId Int                @map("criteria_id")
+  criteria   InspectionCriteria @relation(fields: [criteriaId], references: [id], onDelete: Restrict)
+
+  captures Capture[]
+
+  @@index([authorId, createdAt])
+  @@index([unitId, createdAt])
+  @@map("batches")
+}
+
+model Capture {
+  id       String @id @default(uuid()) @db.Uuid
+  batchId  String @map("batch_id") @db.Uuid
+  batch    Batch  @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  filename String
+  sha256   String @unique
+
+  defects CaptureDefect[]
+
+  @@index([batchId])
+  @@map("captures")
+}
+
+// Uma linha por defeito que o sistema apontou ou que o operador marcou; ausência de linha = sem defeito.
+// Houve correção do operador quando (detectedCount > 0) difere de present.
+model CaptureDefect {
+  captureId     String     @map("capture_id") @db.Uuid
+  type          DefectType
+  detectedCount Int        @map("detected_count")
+  present       Boolean
+  capture       Capture    @relation(fields: [captureId], references: [id], onDelete: Cascade)
+
+  @@id([captureId, type])
+  @@map("capture_defects")
 }

@@ -1,16 +1,24 @@
-// Cadastro de membros: criar, editar, redefinir senha e remover, sem expor hash nem versão do token.
+// Cadastro de membros: criar, editar, redefinir senha e desativar, sem expor hash nem versão do token.
 
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { Member, Prisma, Unit } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import * as argon2 from '@node-rs/argon2';
 import { BancoService } from '../banco/banco.service';
 import { AlteracaoDeMembro, NovoMembro } from './dto';
 
 const MENSAGEM_DE_DUPLICADO = 'Matrícula ou e-mail já cadastrado';
 
-function semDadosSensiveis({ passwordHash, tokenVersion, ...membro }: Member & { units: Unit[] }) {
-  return { ...membro, hasPassword: passwordHash !== null };
+const COM_LINHAS = { units: { select: { unit: { select: { id: true, name: true } } } } } satisfies Prisma.MemberInclude;
+
+function semDadosSensiveis({ passwordHash, tokenVersion, status, units, ...membro }: Prisma.MemberGetPayload<{ include: typeof COM_LINHAS }>) {
+  return {
+    ...membro,
+    hasPassword: passwordHash !== null,
+    units: units.map((v) => v.unit).sort((a, b) => a.name.localeCompare(b.name)),
+  };
 }
+
+const vinculos = (linhaIds: string[]) => linhaIds.map((unitId) => ({ unitId }));
 
 async function semDuplicado<T>(operacao: () => Promise<T>): Promise<T> {
   try {
@@ -28,7 +36,7 @@ export class MembrosService {
   constructor(private banco: BancoService) {}
 
   async listar() {
-    const membros = await this.banco.member.findMany({ orderBy: { createdAt: 'asc' }, include: { units: true } });
+    const membros = await this.banco.member.findMany({ where: { status: 'ACTIVE' }, orderBy: { createdAt: 'asc' }, include: COM_LINHAS });
     return membros.map(semDadosSensiveis);
   }
 
@@ -43,9 +51,9 @@ export class MembrosService {
         phone: dados.phone,
         allUnits: todasAsLinhas,
         passwordHash,
-        units: todasAsLinhas ? undefined : { connect: (dados.unitIds ?? []).map((id) => ({ id })) },
+        units: todasAsLinhas ? undefined : { create: vinculos(dados.unitIds ?? []) },
       },
-      include: { units: true },
+      include: COM_LINHAS,
     }));
     return semDadosSensiveis(membro);
   }
@@ -70,9 +78,9 @@ export class MembrosService {
         status: dados.status,
         allUnits: dados.allUnits,
         tokenVersion: mudaAcesso ? { increment: 1 } : undefined,
-        units: dados.unitIds ? { set: dados.unitIds.map((linhaId) => ({ id: linhaId })) } : undefined,
+        units: dados.unitIds ? { deleteMany: {}, create: vinculos(dados.unitIds) } : undefined,
       },
-      include: { units: true },
+      include: COM_LINHAS,
     }));
     return semDadosSensiveis(membro);
   }
@@ -83,7 +91,7 @@ export class MembrosService {
     const membro = await this.banco.member.update({
       where: { id },
       data: { passwordHash: await argon2.hash(senhaTemporaria), mustChangePassword: true, tokenVersion: { increment: 1 } },
-      include: { units: true },
+      include: COM_LINHAS,
     });
     return semDadosSensiveis(membro);
   }
@@ -91,13 +99,17 @@ export class MembrosService {
   async remover(id: string, quemRemoveId: string) {
     if (id === quemRemoveId) throw new BadRequestException('Você não pode remover a própria conta');
     await this.buscar(id);
-    await this.banco.member.delete({ where: { id } });
+    // Exclusão lógica: os lotes continuam apontando para o membro, que perde o acesso e as sessões abertas.
+    await this.banco.member.update({
+      where: { id },
+      data: { status: 'INACTIVE', passwordHash: null, tokenVersion: { increment: 1 }, units: { deleteMany: {} } },
+    });
     return { success: true };
   }
 
   private async buscar(id: string) {
     const membro = await this.banco.member.findUnique({ where: { id } });
-    if (!membro) throw new NotFoundException('Membro não encontrado');
+    if (!membro || membro.status !== 'ACTIVE') throw new NotFoundException('Membro não encontrado');
     return membro;
   }
 }
