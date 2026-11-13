@@ -1,6 +1,6 @@
 // Rotas da equipe: membros, linhas de produção e os números da página de Membros.
 
-import { Body, Controller, Delete, Get, HttpCode, Module, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Module, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
 import { BancoService } from '../banco/banco.service';
 import { MembroAtual, MembroDaSessao, Perfis } from '../autenticacao/decoradores';
 import { AlteracaoDeMembro, NomeDaLinha, NovoMembro, SenhaTemporaria } from './dto';
@@ -23,18 +23,18 @@ export class MembrosController {
   }
 
   @Patch(':id')
-  alterar(@Param('id') id: string, @Body() dados: AlteracaoDeMembro, @MembroAtual() quem: MembroDaSessao) {
+  alterar(@Param('id', ParseUUIDPipe) id: string, @Body() dados: AlteracaoDeMembro, @MembroAtual() quem: MembroDaSessao) {
     return this.membros.alterar(id, dados, quem.id);
   }
 
   @Post(':id/reset-password')
   @HttpCode(200)
-  redefinirSenha(@Param('id') id: string, @Body() dados: SenhaTemporaria, @MembroAtual() quem: MembroDaSessao) {
+  redefinirSenha(@Param('id', ParseUUIDPipe) id: string, @Body() dados: SenhaTemporaria, @MembroAtual() quem: MembroDaSessao) {
     return this.membros.redefinirSenha(id, dados.temporaryPassword, quem.id);
   }
 
   @Delete(':id')
-  remover(@Param('id') id: string, @MembroAtual() quem: MembroDaSessao) {
+  remover(@Param('id', ParseUUIDPipe) id: string, @MembroAtual() quem: MembroDaSessao) {
     return this.membros.remover(id, quem.id);
   }
 }
@@ -61,12 +61,12 @@ export class LinhasController {
   }
 
   @Patch(':id')
-  renomear(@Param('id') id: string, @Body() dados: NomeDaLinha) {
+  renomear(@Param('id', ParseUUIDPipe) id: string, @Body() dados: NomeDaLinha) {
     return this.linhas.renomear(id, dados.name);
   }
 
   @Delete(':id')
-  remover(@Param('id') id: string) {
+  remover(@Param('id', ParseUUIDPipe) id: string) {
     return this.linhas.remover(id);
   }
 }
@@ -81,8 +81,8 @@ export class EquipeController {
     const inicioDeHoje = new Date();
     inicioDeHoje.setHours(0, 0, 0, 0);
     const [members, activeToday, units] = await Promise.all([
-      this.banco.member.count(),
-      this.banco.member.count({ where: { lastAccessAt: { gte: inicioDeHoje } } }),
+      this.banco.member.count({ where: { status: 'ACTIVE' } }),
+      this.banco.member.count({ where: { status: 'ACTIVE', lastAccessAt: { gte: inicioDeHoje } } }),
       this.banco.unit.count(),
     ]);
     return { members, activeToday, units };

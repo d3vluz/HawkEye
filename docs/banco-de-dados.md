@@ -1,154 +1,297 @@
 # Banco de dados
 
-PostgreSQL 15, acessado pela API com Prisma (`prisma-client-js`). O schema fica em [`api/prisma/schema.prisma`](../api/prisma/schema.prisma). O worker não acessa o PostgreSQL; ele só lê e grava imagens no MinIO.
+PostgreSQL 15, acessado pela API com Prisma (`prisma-client-js`). O schema fica em [`api/prisma/schema.prisma`](../api/prisma/schema.prisma) e evolui por migrations versionadas em [`api/prisma/migrations/`](../api/prisma/migrations/). O worker não acessa o PostgreSQL; ele só lê e grava imagens no MinIO.
+
+O modelo está na **3ª forma normal**: nenhum dado que possa ser calculado a partir de outros fica gravado. Veredito das capturas, totais do lote, contagem de defeitos, correções do operador e URLs das imagens são derivados pela API a cada consulta.
+
+## Modelo conceitual
+
+Entidades e relacionamentos do domínio, sem detalhes de implementação.
 
 ```mermaid
 erDiagram
-    Unit |o--o{ Batch : "recebe (Restrict)"
-    Batch ||--o{ Capture : "contém (Cascade)"
-    Member ||--o{ _MemberToUnit : "membro"
-    Unit ||--o{ _MemberToUnit : "linha"
-    Member |o..o{ Batch : "authorMatricula, sem FK"
+    LINHA_DE_PRODUCAO ||--o{ LOTE : "recebe"
+    MEMBRO ||--o{ LOTE : "registra"
+    MEMBRO }o--o{ LINHA_DE_PRODUCAO : "tem acesso a"
+    VERSAO_DE_CRITERIOS ||--o{ LOTE : "julga"
+    MEMBRO |o--o{ VERSAO_DE_CRITERIOS : "define"
+    LOTE ||--|{ CAPTURA : "contém"
+    CAPTURA ||--o{ DEFEITO : "apresenta"
+```
 
-    Batch {
-        text id PK
+- Um **lote** é registrado por um **membro**, numa **linha de produção**, e julgado por uma **versão dos critérios**.
+- Uma **captura** é uma imagem do lote. Cada **defeito** dela guarda o que o sistema detectou e o que ficou valendo depois da revisão do operador.
+- Um membro acessa todas as linhas ou só as vinculadas a ele.
+
+## Modelo lógico
+
+Relações com chaves primárias (sublinhadas aqui como **PK**) e estrangeiras (**FK**).
+
+```
+production_lines        (id PK, name UNIQUE, created_at)
+members                 (id PK, name, matricula UNIQUE, email UNIQUE, phone, github_username, role, status,
+                         all_units, last_access_at, created_at, password_hash, must_change_password, token_version)
+member_production_lines (member_id PK FK → members, production_line_id PK FK → production_lines)
+inspection_criteria     (id PK, expected_rows, expected_cols, min_quality_score, reject_missing_pins,
+                         reject_extra_pins, reject_damaged_pins, reject_wrong_color_pins, reject_structure_damage,
+                         reject_shaft_defects, created_at, created_by_id FK → members)
+batches                 (id PK, name, description, created_at, storage_folder UNIQUE,
+                         author_id FK → members, production_line_id FK → production_lines, criteria_id FK → inspection_criteria)
+captures                (id PK, batch_id FK → batches, filename, sha256 UNIQUE)
+capture_defects         (capture_id PK FK → captures, type PK, detected_count, present)
+```
+
+## Modelo físico
+
+Tabelas como estão no PostgreSQL. "nulo" marca os campos opcionais.
+
+```mermaid
+erDiagram
+    production_lines ||--o{ batches : "production_line_id (Restrict)"
+    members ||--o{ batches : "author_id (Restrict)"
+    inspection_criteria ||--o{ batches : "criteria_id (Restrict)"
+    members |o--o{ inspection_criteria : "created_by_id (Restrict)"
+    members ||--o{ member_production_lines : "member_id (Cascade)"
+    production_lines ||--o{ member_production_lines : "production_line_id (Cascade)"
+    batches ||--o{ captures : "batch_id (Cascade)"
+    captures ||--o{ capture_defects : "capture_id (Cascade)"
+
+    production_lines {
+        uuid id PK
+        text name UK
+        timestamp created_at
+    }
+    members {
+        uuid id PK
         text name
-        text description "nulo"
-        timestamp createdAt
-        integer totalCaptures
-        integer validCaptures
-        integer invalidCaptures
-        text authorMatricula "nulo, sem FK"
-        text unitId FK "nulo"
-    }
-    Capture {
-        text id PK
-        text batchId FK
-        text filename
-        text sha256 UK
-        text originalUri
-        text processedUri "nulo"
-        text processedAreasUri "nulo"
-        text processedPinsUri "nulo"
-        text processedShaftUri "nulo"
-        boolean isValid
-        integer defectsCount
-        boolean hasMissingPins
-        boolean hasExtraPins
-        boolean hasDamagedPins
-        boolean hasWrongColorPins
-        boolean hasStructureDamage
-        boolean hasShaftDefects
-        jsonb corrections "nulo"
-        timestamp createdAt
-    }
-    Unit {
-        text id PK
-        text name
-        timestamp createdAt
-    }
-    _MemberToUnit {
-        text A FK "Member.id"
-        text B FK "Unit.id"
-    }
-    Member {
-        text id PK
-        text name
-        text matricula UK "nulo"
+        text matricula UK
         text email UK "nulo"
         text phone "nulo"
-        text githubUsername "nulo"
-        MemberRole role "ADMIN ou EMPLOYEE"
-        MemberStatus status "ACTIVE ou INACTIVE"
-        boolean allUnits
-        timestamp lastAccessAt "nulo"
-        timestamp createdAt
-        text passwordHash "nulo"
-        boolean mustChangePassword
-        integer tokenVersion
+        text github_username "nulo"
+        member_role role "ADMIN ou EMPLOYEE"
+        member_status status "ACTIVE ou INACTIVE"
+        boolean all_units
+        timestamp last_access_at "nulo"
+        timestamp created_at
+        text password_hash "nulo"
+        boolean must_change_password
+        integer token_version
     }
-    InspectionSettings {
-        integer id PK "sempre 1"
-        integer expectedRows "nulo"
-        integer expectedCols "nulo"
-        integer minQualityScore
-        boolean rejectMissingPins
-        boolean rejectExtraPins
-        boolean rejectDamagedPins
-        boolean rejectWrongColorPins
-        boolean rejectStructureDamage
-        boolean rejectShaftDefects
-        timestamp updatedAt
-        text updatedByMatricula "nulo"
+    member_production_lines {
+        uuid member_id PK, FK
+        uuid production_line_id PK, FK
+    }
+    inspection_criteria {
+        serial id PK
+        integer expected_rows "nulo"
+        integer expected_cols "nulo"
+        integer min_quality_score
+        boolean reject_missing_pins
+        boolean reject_extra_pins
+        boolean reject_damaged_pins
+        boolean reject_wrong_color_pins
+        boolean reject_structure_damage
+        boolean reject_shaft_defects
+        timestamp created_at
+        uuid created_by_id FK "nulo"
+    }
+    batches {
+        uuid id PK
+        text name
+        text description "nulo"
+        timestamp created_at
+        text storage_folder UK
+        uuid author_id FK
+        uuid production_line_id FK
+        integer criteria_id FK
+    }
+    captures {
+        uuid id PK
+        uuid batch_id FK
+        text filename
+        text sha256 UK
+    }
+    capture_defects {
+        uuid capture_id PK, FK
+        defect_type type PK
+        integer detected_count
+        boolean present
     }
 ```
 
-Tipos como ficam no PostgreSQL. "nulo" marca os campos opcionais. Os ids são `text` com UUID gerado pelo Prisma.
+No código, os models do Prisma mantêm nomes em inglês e PascalCase (`Batch`, `Capture`, `Unit`…) e são mapeados para as tabelas em `snake_case` com `@@map` e `@map`. O model `Unit` corresponde à tabela `production_lines`, e o `MemberUnit` à `member_production_lines`.
 
+## Dicionário de dados
 
-## Tabelas
+### `production_lines` ➝ linha de produção
 
-### `Batch` ➝ lote
+| Campo | Tipo | Nulo | Padrão | Descrição |
+|-------|------|------|--------|-----------|
+| `id` | uuid | não | gerado | Identificador |
+| `name` | text | não | — | Nome exibido; único |
+| `created_at` | timestamp | não | agora | Data de cadastro |
 
-Um conjunto de capturas registrado de uma vez por um funcionário, numa linha de produção.
+A API cria Linha A, B e C no primeiro uso se não houver nenhuma.
 
-- `totalCaptures`, `validCaptures` e `invalidCaptures` são gravados no registro, para que listas e métricas não precisem contar capturas a cada consulta. A taxa de aprovação (`quality_score` na API) é `validCaptures / totalCaptures`.
-- `authorMatricula` guarda a matrícula de quem registrou, **sem chave estrangeira**. O nome do autor é buscado no cadastro atual a cada consulta; se o membro for excluído, o lote mantém a matrícula e aparece sem nome.
-- `unitId` liga o lote à linha com `onDelete: Restrict`: uma linha que tem lotes não pode ser removida, só renomeada, para as métricas por linha não perderem a origem.
-- Índices em `(authorMatricula, createdAt)` e `(unitId, createdAt)` atendem às listas de "minhas coletas" e ao filtro por linha.
+---
 
-### `Capture` ➝ captura
+### `members` ➝ membro da equipe
 
-Uma imagem analisada dentro de um lote. Excluir o lote apaga as capturas (`onDelete: Cascade`).
+| Campo | Tipo | Nulo | Padrão | Descrição |
+|-------|------|------|--------|-----------|
+| `id` | uuid | não | gerado | Identificador |
+| `name` | text | não | — | Nome completo |
+| `matricula` | text | não | — | Identificação de login; única e imutável |
+| `email` | text | sim | — | Alternativa de login; único |
+| `phone` | text | sim | — | Só dígitos, com DDD |
+| `github_username` | text | sim | — | Usado para o avatar |
+| `role` | member_role | não | `EMPLOYEE` | `ADMIN` ou `EMPLOYEE` |
+| `status` | member_status | não | `ACTIVE` | `INACTIVE` é a exclusão lógica |
+| `all_units` | boolean | não | false | Acesso a todas as linhas |
+| `last_access_at` | timestamp | sim | — | Último login |
+| `created_at` | timestamp | não | agora | Data de cadastro |
+| `password_hash` | text | sim | — | Hash Argon2; nulo bloqueia o login |
+| `must_change_password` | boolean | não | true | Senha temporária a trocar no próximo acesso |
+| `token_version` | integer | não | 0 | Vai no JWT; incrementar derruba as sessões abertas |
 
-- `sha256` é único: a mesma imagem não pode ser registrada duas vezes.
-- As cinco URIs apontam para as imagens no bucket `permanent` (veja [Arquitetura › Armazenamento](arquitetura.md#armazenamento)). `processedUri` é a imagem dos compartimentos.
-- Os campos `has*` dizem quais defeitos a captura tem depois da revisão, e `isValid` é o veredito calculado pela API com os critérios vigentes no momento do registro.
-- `defectsCount` soma a quantidade de cada defeito encontrado; dano estrutural conta 1.
-- `corrections` registra o que o operador mudou na revisão, como uma lista de `{ defect, detected, corrected }`. É `null` quando nada foi corrigido. Permite ver, no detalhe do lote, onde o sistema errou.
+---
 
-### `Unit` ➝ linha de produção
+### `member_production_lines` ➝ acesso do membro às linhas
 
-Linhas de produção às quais lotes e membros se ligam. A API cria Linha A, B e C no primeiro uso se não existir nenhuma.
+| Campo | Tipo | Nulo | Descrição |
+|-------|------|------|-----------|
+| `member_id` | uuid | não | Membro (FK, Cascade) |
+| `production_line_id` | uuid | não | Linha (FK, Cascade) |
 
-### `Member` ➝ membro da equipe
+Usada só quando `all_units` é falso.
 
-- `matricula` é obrigatória em cadastros novos, única e imutável. `email` é opcional e também único. O login aceita qualquer um dos dois.
-- `role` é `ADMIN` ou `EMPLOYEE`; novos cadastros entram como `EMPLOYEE`.
-- `status` `INACTIVE` bloqueia o login e derruba sessões abertas.
-- `allUnits` dá acesso a todas as linhas; caso contrário, o acesso vem da relação muitos-para-muitos com `Unit`, guardada na tabela `_MemberToUnit` que o Prisma cria sozinho (`A` é o membro, `B` é a linha). O funcionário só registra lotes em linhas a que tem acesso.
-- `passwordHash` é Argon2. `mustChangePassword` obriga a troca no próximo acesso (senha temporária definida pelo admin).
-- `tokenVersion` entra no JWT da sessão. Incrementá-lo (troca ou redefinição de senha) invalida todas as sessões abertas do membro.
+---
 
-### `InspectionSettings` ➝ critérios de inspeção
+### `inspection_criteria` ➝ versões dos critérios
 
-Linha única (`id = 1`), criada com os valores padrão na primeira leitura.
+| Campo | Tipo | Nulo | Padrão | Descrição |
+|-------|------|------|--------|-----------|
+| `id` | serial | não | sequência | Número da versão |
+| `expected_rows` / `expected_cols` | integer | sim | — | Grade esperada; os dois juntos ou nenhum |
+| `min_quality_score` | integer | não | 80 | Meta de aprovação do lote, de 0 a 100 |
+| `reject_*` (6 campos) | boolean | não | true | Se cada tipo de defeito reprova a captura |
+| `created_at` | timestamp | não | agora | Quando a versão foi criada |
+| `created_by_id` | uuid | sim | — | Admin que salvou (FK); nulo na versão inicial |
 
-- `rejectX` define se cada tipo de defeito reprova a captura. Defeitos desligados continuam contados nas métricas.
-- `expectedRows` e `expectedCols` são opcionais e vêm juntos. Quando definidos, uma grade de tamanho diferente vira dano estrutural.
-- `minQualityScore` é a meta de aprovação do lote (padrão 80%). Lotes abaixo dela aparecem destacados.
+Salvar os critérios **insere** uma versão nova; a vigente é a de maior `id`. Versões nunca são alteradas.
+
+---
+
+### `batches` ➝ lote
+
+| Campo | Tipo | Nulo | Padrão | Descrição |
+|-------|------|------|--------|-----------|
+| `id` | uuid | não | gerado | Identificador |
+| `name` | text | não | — | Nome dado pelo operador |
+| `description` | text | sim | — | Observações |
+| `created_at` | timestamp | não | agora | Data do registro |
+| `storage_folder` | text | não | — | Pasta do lote no bucket `permanent`; única |
+| `author_id` | uuid | não | — | Quem registrou (FK, Restrict) |
+| `production_line_id` | uuid | não | — | Linha do lote (FK, Restrict) |
+| `criteria_id` | integer | não | — | Versão dos critérios usada no julgamento (FK, Restrict) |
+
+---
+
+### `captures` ➝ captura
+
+| Campo | Tipo | Nulo | Descrição |
+|-------|------|------|-----------|
+| `id` | uuid | não | Identificador |
+| `batch_id` | uuid | não | Lote (FK, Cascade) |
+| `filename` | text | não | Nome do arquivo enviado |
+| `sha256` | text | não | Hash da imagem; único, impede registrar a mesma imagem duas vezes |
+
+As URLs das imagens são montadas pela API: `{MINIO_PUBLIC_URL}/permanent/{storage_folder}/{sha256}/{arquivo}`. Veja [Arquitetura › Armazenamento](arquitetura.md#armazenamento).
+
+---
+
+### `capture_defects` ➝ defeitos de uma captura
+
+| Campo | Tipo | Nulo | Descrição |
+|-------|------|------|-----------|
+| `capture_id` | uuid | não | Captura (PK e FK, Cascade) |
+| `type` | defect_type | não | `MISSING`, `EXTRA`, `WRONG_COLOR`, `DAMAGED`, `SHAFT` ou `STRUCTURE` (PK) |
+| `detected_count` | integer | não | Quantas ocorrências o sistema detectou; 0 se não detectou |
+| `present` | boolean | não | Se o defeito vale depois da revisão do operador |
+
+Só existem linhas para defeitos que o sistema detectou (`detected_count > 0`) ou que o operador marcou (`present`). Ausência de linha significa "sem defeito". Houve **correção** do operador quando `detected_count > 0` difere de `present`.
+
+## Normalização
+
+- **1ª forma normal:** todos os atributos são atômicos e não há grupos repetitivos. Cada defeito de uma captura é uma linha de `capture_defects`, o que permite consultar e restringir os defeitos com SQL comum e incluir novos tipos sem alterar a estrutura das tabelas.
+- **2ª forma normal:** as tabelas com chave composta (`member_production_lines`, `capture_defects`) não têm atributo que dependa só de parte da chave. `detected_count` e `present` dependem da captura **e** do tipo.
+- **3ª forma normal:** nenhum atributo não-chave depende de outro atributo não-chave. Dados deriváveis não são gravados; a API os calcula em [`api/src/comum/lotes.ts`](../api/src/comum/lotes.ts):
+
+| Dado | Como é obtido |
+|------|---------------|
+| Veredito da captura (`is_valid`) | Reprovada se tiver algum defeito `present` cujo `reject_*` esteja ligado na versão dos critérios do lote |
+| Defeitos da captura (`defects`) | Tipos com `present = true` |
+| Correções do operador (`corrections`) | Linhas em que `detected_count > 0` difere de `present` |
+| Defeitos da captura (`defects_count`) | Soma de `max(detected_count, 1)` dos defeitos presentes |
+| Totais do lote (capturas, aprovadas, reprovadas, defeitos, `quality_score`) | Agregação das capturas do lote |
+| Nome do autor | Junção com `members` pela FK |
+| URLs das imagens | `storage_folder` + `sha256` + nome fixo de cada arquivo |
+
+A data de uma captura é a do lote a que ela pertence.
+
+Como o veredito depende da versão dos critérios gravada no lote, e versões são imutáveis, o cálculo sempre dá o mesmo resultado. Uma nova versão dos critérios vale apenas para os lotes registrados depois dela.
+
+## Regras de integridade
+
+| Regra | Onde |
+|-------|------|
+| Linha com lotes não pode ser removida, só renomeada | FK `batches.production_line_id`, `ON DELETE RESTRICT` |
+| Membro com lotes não pode ser apagado; a remoção é lógica (`status = INACTIVE`) | FK `batches.author_id`, `ON DELETE RESTRICT` |
+| Versão de critérios usada por algum lote não pode ser apagada | FK `batches.criteria_id`, `ON DELETE RESTRICT` |
+| Excluir o lote apaga capturas e defeitos | FKs com `ON DELETE CASCADE` |
+| Mesma imagem não entra duas vezes; mesmo lote não é registrado duas vezes | `UNIQUE (sha256)` e `UNIQUE (storage_folder)` |
+| Grade esperada com linhas e colunas juntas, positivas | `CHECK` em `inspection_criteria` |
+| Meta entre 0 e 100 | `CHECK` em `inspection_criteria` |
+| Linha de defeito só existe se detectado ou presente; contagem não negativa | `CHECK` em `capture_defects` |
+
+As restrições `CHECK` estão na migration `1_normalizacao`, porque o Prisma não as expressa no schema.
 
 ## Regra do veredito
 
-A API aplica esta regra a cada captura ao registrar um lote (`api/src/configuracoes/criterios.service.ts`):
+Ao registrar um lote, a API (`api/src/lotes/lotes.service.ts`):
 
-1. **Dano estrutural** é a correção do operador, se houver. Senão, é verdadeiro quando há compartimentos unidos (`compartimentos < linhas × colunas`, ou seja, divisória ausente) ou quando a grade difere da esperada.
-2. A captura é **reprovada** se tiver qualquer defeito cujo critério `reject*` esteja ligado.
+1. Usa a versão vigente dos critérios e grava o `criteria_id` no lote.
+2. Calcula o **dano estrutural** detectado: compartimentos unidos (`compartimentos < linhas × colunas`, ou seja, divisória ausente) ou grade diferente da esperada. O operador pode corrigir esse valor.
+3. Grava uma linha em `capture_defects` para cada defeito detectado ou marcado, com a contagem do sistema e o valor final.
 
-Os lotes já registrados guardam o veredito do momento; mudar os critérios não os recalcula.
+O veredito não é gravado: é calculado a cada leitura pela regra da normalização acima. O frontend (`frontend/lib/defeitos.ts`) espelha a regra só para exibir durante a revisão.
 
-## Como o schema é aplicado
+## Migrations
 
-Não há migrations versionadas. O container `api` roda `prisma db push` no startup, que sincroniza o banco com o `schema.prisma`.
+O container `api` roda `prisma migrate deploy` no startup, que aplica as migrations pendentes de `api/prisma/migrations/` em ordem.
 
-- Adicionar tabela, coluna opcional ou coluna com valor padrão: basta reiniciar a API.
-- Remover tabela ou coluna que já tem dados: o `db push` recusa para não perder dados. Rode uma vez dentro do container:
+| Migration | O que faz |
+|-----------|-----------|
+| `0_inicial` | Estrutura base do banco |
+| `1_normalizacao` | Estrutura em 3ª forma normal descrita neste documento, com as restrições `CHECK` e a conversão dos dados da estrutura base |
 
-  ```bash
-  docker compose exec api npx prisma db push --accept-data-loss
-  ```
+**Mudando o schema:** edite o `schema.prisma` e gere a migration, que vai para o git:
 
-- Apagar tudo e recomeçar: `docker compose down -v` remove os volumes do banco e do MinIO.
+```bash
+docker compose exec api npx prisma migrate dev --name descricao_da_mudanca
+```
+
+Para mudanças que precisam converter dados, crie com `--create-only`, edite o SQL e depois aplique com `migrate dev`.
+
+**Instalação sem histórico de migrations:** se o banco já tem a estrutura base (tabelas `"Batch"`, `"Member"`…) mas não a tabela `_prisma_migrations`, o `migrate deploy` falha com o erro P3005. Marque a migration de base como aplicada, uma única vez, e reinicie a API:
+
+```bash
+docker compose run --rm --no-deps api npx prisma migrate resolve --applied 0_inicial
+```
+
+A `1_normalizacao` então converte os dados existentes. Lotes cuja matrícula de autor não tem cadastro são ligados a um membro inativo "Membro removido" com essa matrícula, e lotes sem linha a uma linha "Sem linha".
+
+**Apagar tudo e recomeçar:** `docker compose down -v` remove os volumes do banco e do MinIO; no próximo startup as migrations criam o banco do zero.
 
 ## Consultando o banco
 
@@ -156,4 +299,4 @@ Não há migrations versionadas. O container `api` roda `prisma db push` no star
 docker compose exec db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
 ```
 
-Os nomes de tabela e coluna têm maiúsculas, então use aspas: `SELECT name, "createdAt" FROM "Batch";`.
+Os nomes estão em `snake_case`, então não precisam de aspas: `SELECT name, created_at FROM batches;`.

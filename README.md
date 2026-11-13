@@ -1,6 +1,6 @@
 <div align="center">
 
-  <img src="assets/logo_project.png" alt="HawkEye" width="140">
+  <img src="docs/imagens/logo_project.png" alt="HawkEye" width="140">
 
   <h3>HawkEye</h3>
   <p><strong>Inspeção de qualidade por visão computacional</strong></p>

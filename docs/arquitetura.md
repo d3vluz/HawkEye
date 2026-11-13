@@ -39,7 +39,7 @@ O container do frontend só entrega as páginas. O código delas roda no navegad
 | Armazenamento | `hawkeye-minio` | `9000` / `9001` | MinIO (compatível com S3), com os buckets `review` e `permanent` |
 | Inicialização | `hawkeye-minio-init` | — | Cria os buckets e libera a leitura pública; roda uma vez e termina |
 
-A ordem de subida é garantida por `depends_on` com healthcheck: o MinIO sobe, o `minio-init` cria os buckets, o worker fica saudável e só então a API inicia. A API aplica o schema do banco (`prisma db push`) no próprio startup.
+A ordem de subida é garantida por `depends_on` com healthcheck: o MinIO sobe, o `minio-init` cria os buckets, o worker fica saudável e só então a API inicia. A API aplica as migrations pendentes do banco (`prisma migrate deploy`) no próprio startup.
 
 ## Por que separar assim
 
@@ -107,9 +107,9 @@ sequenceDiagram
     alt Registrar
         Nav->>API: POST /api/batches/create
         API->>DB: confere a linha e lê os critérios
-        API->>API: recalcula o veredito de cada captura
+        API->>API: calcula o dano estrutural de cada captura
         API->>S3: move review → permanent
-        API->>DB: grava o lote e as capturas
+        API->>DB: grava o lote, as capturas e os defeitos
     else Reprovar
         Nav->>API: POST /api/batches/reject
         API->>S3: apaga a pasta do lote em review
@@ -120,7 +120,7 @@ Os resultados ficam no `sessionStorage` até o registro: recarregar a página n�
 
 ### O veredito é sempre do servidor
 
-Na revisão, o frontend mostra o veredito usando a mesma regra da API (`frontend/lib/defeitos.ts` espelha `api/src/configuracoes/criterios.service.ts`). Ao registrar, porém, a API ignora qualquer veredito vindo do navegador: lê os critérios atuais do banco e recalcula `isValid` e `hasStructureDamage` a partir dos defeitos de cada captura. Mudar os critérios não altera lotes já registrados.
+Na revisão, o frontend mostra o veredito usando a mesma regra da API. O veredito nunca é gravado nem aceito do navegador: a API grava os defeitos de cada captura e a versão dos critérios vigente, e calcula o veredito a cada leitura. Como versões de critérios não mudam, mudar os critérios não altera lotes já registrados. Veja [Banco de dados › Normalização](banco-de-dados.md#normalização).
 
 ## Armazenamento
 

@@ -1,6 +1,6 @@
 // Defeitos de uma captura: o que o worker apontou, as correções do operador e o veredito pelos critérios.
 
-import type { Camada, Correcao, Criterios, Defeito, Defeitos, ResultadoDaAnalise } from "@/types"
+import type { Camada, Criterios, Defeito, Defeitos, ResultadoDaAnalise } from "@/types"
 import { plural } from "@/lib/formato"
 
 export type Correcoes = Partial<Defeitos>
@@ -22,8 +22,8 @@ const CRITERIO_DO_DEFEITO: Record<Defeito, keyof Criterios> = {
   structure: "rejectStructureDamage",
 }
 
-// Pino com cor errada e deformado conta nas duas verificações.
-function quantidades(analise: ResultadoDaAnalise): Record<Exclude<Defeito, "structure">, number> {
+// Quantas ocorrências de cada defeito o sistema detectou. Pino com cor errada e deformado conta nas duas.
+export function contagensDetectadas(analise: ResultadoDaAnalise): Record<Exclude<Defeito, "structure">, number> {
   const pinos = analise.pin_classification.details
   return {
     missing: analise.boxes_info.empty_boxes,
@@ -37,27 +37,27 @@ function quantidades(analise: ResultadoDaAnalise): Record<Exclude<Defeito, "stru
 export const VERIFICACOES: Verificacao[] = [
   {
     defeito: "missing", titulo: "Pino faltando", camada: "boxes",
-    encontrado: (a) => plural(quantidades(a).missing, "compartimento vazio", "compartimentos vazios"),
+    encontrado: (a) => plural(contagensDetectadas(a).missing, "compartimento vazio", "compartimentos vazios"),
     semDefeito: "Todos os compartimentos têm pino",
   },
   {
     defeito: "extra", titulo: "Pino a mais", camada: "boxes",
-    encontrado: (a) => plural(quantidades(a).extra, "compartimento com pino sobrando", "compartimentos com pino sobrando"),
+    encontrado: (a) => plural(contagensDetectadas(a).extra, "compartimento com pino sobrando", "compartimentos com pino sobrando"),
     semDefeito: "Nenhum compartimento com pino sobrando",
   },
   {
     defeito: "wrongColor", titulo: "Cor do pino", camada: "pins",
-    encontrado: (a) => plural(quantidades(a).wrongColor, "pino fora da cor padrão", "pinos fora da cor padrão"),
+    encontrado: (a) => plural(contagensDetectadas(a).wrongColor, "pino fora da cor padrão", "pinos fora da cor padrão"),
     semDefeito: "Todos na cor padrão",
   },
   {
     defeito: "damaged", titulo: "Corpo do pino", camada: "pins",
-    encontrado: (a) => plural(quantidades(a).damaged, "pino deformado ou lascado", "pinos deformados ou lascados"),
+    encontrado: (a) => plural(contagensDetectadas(a).damaged, "pino deformado ou lascado", "pinos deformados ou lascados"),
     semDefeito: "Nenhum pino deformado",
   },
   {
     defeito: "shaft", titulo: "Haste (agulha)", camada: "shafts",
-    encontrado: (a) => plural(quantidades(a).shaft, "haste quebrada, curta ou torta", "hastes quebradas, curtas ou tortas"),
+    encontrado: (a) => plural(contagensDetectadas(a).shaft, "haste quebrada, curta ou torta", "hastes quebradas, curtas ou tortas"),
     semDefeito: "Todas as hastes íntegras",
   },
   {
@@ -77,7 +77,7 @@ export const camadaDoDefeito = (defeito: Defeito) => VERIFICACOES.find((v) => v.
 
 // Espelha a regra da API (configuracoes/criterios.service.ts) só para exibir; o veredito gravado é o do servidor.
 export function defeitosDetectados(analise: ResultadoDaAnalise, criterios: Criterios | null): Defeitos {
-  const q = quantidades(analise)
+  const q = contagensDetectadas(analise)
   const temGradeEsperada = criterios?.expectedRows != null && criterios?.expectedCols != null
   const estrutura =
     analise.areas_count < analise.grid_rows * analise.grid_cols ||
@@ -106,21 +106,4 @@ export function corrigir(atuais: Correcoes | undefined, detectados: Defeitos, de
   if (detectados[defeito] === valor) delete proximas[defeito]
   else proximas[defeito] = valor
   return proximas
-}
-
-export function listaDeCorrecoes(detectados: Defeitos, correcoes: Correcoes | undefined): Correcao[] {
-  return (Object.entries(correcoes ?? {}) as Array<[Defeito, boolean]>).map(([defeito, valor]) => ({
-    defect: defeito,
-    detected: detectados[defeito],
-    corrected: valor,
-  }))
-}
-
-export function quantidadeDeDefeitos(analise: ResultadoDaAnalise, finais: Defeitos, detectados: Defeitos): number {
-  const q = quantidades(analise)
-  // Defeito marcado pelo operador sem contagem do sistema vale 1; a estrutura é somada pela API.
-  return (Object.keys(q) as Array<keyof typeof q>).reduce(
-    (soma, d) => soma + (finais[d] ? (detectados[d] ? Math.max(q[d], 1) : 1) : 0),
-    0,
-  )
 }

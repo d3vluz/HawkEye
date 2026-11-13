@@ -1,24 +1,25 @@
 // Registro, consulta e exclusão de lotes; ao registrar, as imagens passam do bucket de revisão para o permanente.
 
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { DefectType, Prisma } from '@prisma/client';
 import { ArmazenamentoService } from '../armazenamento/armazenamento.service';
 import { MembroDaSessao } from '../autenticacao/decoradores';
 import { BancoService } from '../banco/banco.service';
-import { loteResumido, nomesDosAutores } from '../comum/lotes';
+import { LOTE_COMPLETO, loteResumido, resultadoDaCaptura, TIPO_DO_DEFEITO } from '../comum/lotes';
 import { CriteriosService } from '../configuracoes/criterios.service';
 import { CapturaRevisada, NovoLote } from './dto';
 
+// Nomes fixos dos arquivos de cada captura dentro de {pasta do lote}/{sha256}/.
 const ARQUIVOS_DA_CAPTURA = {
-  originalUri: (c: CapturaRevisada) => `original_${c.filename}`,
-  processedAreasUri: () => 'processed_areas.png',
-  processedPinsUri: () => 'processed_pins.png',
-  processedUri: () => 'processed_boxes.png',
-  processedShaftUri: () => 'processed_shafts.png',
+  original_uri: (nome: string) => `original_${nome}`,
+  processed_areas_uri: () => 'processed_areas.png',
+  processed_pins_uri: () => 'processed_pins.png',
+  processed_uri: () => 'processed_boxes.png',
+  processed_shaft_uri: () => 'processed_shafts.png',
 } as const;
 
 type CampoDeImagem = keyof typeof ARQUIVOS_DA_CAPTURA;
-const LINHA = { select: { id: true, name: true } } as const;
+const CAMPOS_DE_IMAGEM = Object.keys(ARQUIVOS_DA_CAPTURA) as CampoDeImagem[];
 
 @Injectable()
 export class LotesService {
@@ -29,61 +30,45 @@ export class LotesService {
   ) {}
 
   async registrar(dados: NovoLote, autorDoLote: MembroDaSessao) {
-    if (!autorDoLote.matricula) throw new BadRequestException('Conta sem matrícula não pode registrar coletas');
     await this.exigirAcessoALinha(autorDoLote.id, dados.unit_id);
-    const criterios = await this.criterios.ler();
-
-    const capturas = [];
-    for (const captura of dados.captures) {
-      const veredito = this.criterios.veredito(criterios, {
-        linhasDaGrade: captura.grid_rows,
-        colunasDaGrade: captura.grid_cols,
-        compartimentos: captura.areas_detected,
-        pinoFaltando: captura.has_missing_pins,
-        pinoAMais: captura.has_extra_pins,
-        pinoDanificado: captura.has_damaged_pins,
-        corErrada: captura.has_wrong_color_pins,
-        hasteComDefeito: captura.has_shaft_defects,
-        estruturaCorrigida: captura.structure_override,
-      });
-      capturas.push({
-        filename: captura.filename,
-        sha256: captura.sha256,
-        ...(await this.moverImagens(captura, dados.batch_timestamp)),
-        isValid: veredito.aprovada,
-        defectsCount: captura.defects_count + (veredito.danoEstrutural ? 1 : 0),
-        hasMissingPins: captura.has_missing_pins,
-        hasExtraPins: captura.has_extra_pins,
-        hasDamagedPins: captura.has_damaged_pins,
-        hasWrongColorPins: captura.has_wrong_color_pins,
-        hasStructureDamage: veredito.danoEstrutural,
-        hasShaftDefects: captura.has_shaft_defects,
-        corrections: captura.corrections?.length ? (captura.corrections as unknown as Prisma.InputJsonValue) : undefined,
-      });
+    if (await this.banco.batch.count({ where: { storageFolder: dados.batch_timestamp } })) {
+      throw new ConflictException('Este lote já foi registrado');
     }
+    const criterios = await this.criterios.vigentes();
 
-    const total = capturas.length;
-    const aprovadas = capturas.filter((c) => c.isValid).length;
+    const capturas = dados.captures.map((captura) => ({
+      filename: captura.filename,
+      sha256: captura.sha256,
+      defects: { create: this.defeitosDaCaptura(captura, this.criterios.danoEstrutural(criterios, {
+        linhas: captura.grid_rows,
+        colunas: captura.grid_cols,
+        compartimentos: captura.areas_detected,
+      })) },
+    }));
+
+    for (const captura of dados.captures) await this.moverImagens(dados.batch_timestamp, captura);
+
     const lote = await this.banco.batch.create({
       data: {
         name: dados.name,
         description: dados.description,
-        totalCaptures: total,
-        validCaptures: aprovadas,
-        invalidCaptures: total - aprovadas,
-        authorMatricula: autorDoLote.matricula,
+        storageFolder: dados.batch_timestamp,
+        authorId: autorDoLote.id,
         unitId: dados.unit_id,
+        criteriaId: criterios.id,
         captures: { create: capturas },
       },
+      include: LOTE_COMPLETO,
     });
 
+    const resumo = loteResumido(lote);
     return {
       success: true,
       message: `Lote '${dados.name}' criado com sucesso`,
       batch_id: lote.id,
-      total_captures: total,
-      valid_captures: aprovadas,
-      invalid_captures: total - aprovadas,
+      total_captures: resumo.total_captures,
+      valid_captures: resumo.valid_captures,
+      invalid_captures: resumo.invalid_captures,
     };
   }
 
@@ -96,44 +81,64 @@ export class LotesService {
     return this.listar({ unitId: linhaId });
   }
 
-  listarDoAutor(matricula: string | null) {
-    return matricula ? this.listar({ authorMatricula: matricula }) : { batches: [] };
+  listarDoAutor(autorId: string) {
+    return this.listar({ authorId: autorId });
   }
 
   detalhar(id: string) {
     return this.buscarDetalhe({ id });
   }
 
-  detalharDoAutor(id: string, matricula: string | null) {
-    if (!matricula) throw new NotFoundException('Lote não encontrado');
-    return this.buscarDetalhe({ id, authorMatricula: matricula });
+  detalharDoAutor(id: string, autorId: string) {
+    return this.buscarDetalhe({ id, authorId: autorId });
   }
 
   async remover(id: string) {
-    const lote = await this.banco.batch.findUnique({ where: { id }, include: { captures: true } });
+    const lote = await this.banco.batch.findUnique({ where: { id }, select: { storageFolder: true } });
     if (!lote) throw new NotFoundException('Lote não encontrado');
-    const urls = lote.captures.flatMap((c) => (Object.keys(ARQUIVOS_DA_CAPTURA) as CampoDeImagem[]).map((campo) => c[campo]));
-
-    await this.armazenamento.apagarPorUrl(urls, this.armazenamento.permanente);
+    await this.armazenamento.apagarPasta(lote.storageFolder, this.armazenamento.permanente);
     await this.banco.batch.delete({ where: { id } });
     return { success: true };
   }
 
-  private async moverImagens(captura: CapturaRevisada, timestamp: string) {
-    const urls = {} as Record<CampoDeImagem, string | undefined>;
-    for (const [campo, nome] of Object.entries(ARQUIVOS_DA_CAPTURA) as Array<[CampoDeImagem, (c: CapturaRevisada) => string]>) {
-      const chave = `${timestamp}/${captura.sha256}/${nome(captura)}`;
-      const movida = await this.armazenamento.moverParaPermanente(chave);
-      urls[campo] = movida ? this.armazenamento.urlPublica(chave, this.armazenamento.permanente) : undefined;
+  // Só entram os defeitos que o sistema apontou ou que o operador marcou; o resto fica implícito como ausente.
+  private defeitosDaCaptura(captura: CapturaRevisada, estruturaDetectada: boolean) {
+    const contagens = captura.detected_counts;
+    const linhas: Array<{ type: DefectType; detectedCount: number; present: boolean }> = [
+      { type: TIPO_DO_DEFEITO.missing, detectedCount: contagens.missing, present: captura.has_missing_pins },
+      { type: TIPO_DO_DEFEITO.extra, detectedCount: contagens.extra, present: captura.has_extra_pins },
+      { type: TIPO_DO_DEFEITO.wrongColor, detectedCount: contagens.wrongColor, present: captura.has_wrong_color_pins },
+      { type: TIPO_DO_DEFEITO.damaged, detectedCount: contagens.damaged, present: captura.has_damaged_pins },
+      { type: TIPO_DO_DEFEITO.shaft, detectedCount: contagens.shaft, present: captura.has_shaft_defects },
+      {
+        type: TIPO_DO_DEFEITO.structure,
+        detectedCount: estruturaDetectada ? 1 : 0,
+        present: captura.structure_override ?? estruturaDetectada,
+      },
+    ];
+    return linhas.filter((d) => d.detectedCount > 0 || d.present);
+  }
+
+  private async moverImagens(pasta: string, captura: CapturaRevisada) {
+    for (const campo of CAMPOS_DE_IMAGEM) {
+      await this.armazenamento.moverParaPermanente(`${pasta}/${captura.sha256}/${ARQUIVOS_DA_CAPTURA[campo](captura.filename)}`);
     }
-    return { ...urls, originalUri: urls.originalUri ?? this.armazenamento.urlPublica('', this.armazenamento.permanente) };
+  }
+
+  private urlsDaCaptura(pasta: string, captura: { sha256: string; filename: string }) {
+    return Object.fromEntries(
+      CAMPOS_DE_IMAGEM.map((campo) => [
+        campo,
+        this.armazenamento.urlPublica(`${pasta}/${captura.sha256}/${ARQUIVOS_DA_CAPTURA[campo](captura.filename)}`, this.armazenamento.permanente),
+      ]),
+    ) as Record<CampoDeImagem, string>;
   }
 
   private async exigirAcessoALinha(membroId: string, linhaId: string) {
     const [membro, linhaExiste] = await Promise.all([
       this.banco.member.findUnique({
         where: { id: membroId },
-        select: { allUnits: true, units: { where: { id: linhaId }, select: { id: true } } },
+        select: { allUnits: true, units: { where: { unitId: linhaId }, select: { unitId: true } } },
       }),
       this.banco.unit.count({ where: { id: linhaId } }),
     ]);
@@ -141,43 +146,34 @@ export class LotesService {
     if (!membro?.allUnits && !membro?.units.length) throw new ForbiddenException('Você não tem acesso a esta linha');
   }
 
-  private async listar(filtro: { authorMatricula?: string; unitId?: string }) {
-    const [lotes, defeitos] = await Promise.all([
-      this.banco.batch.findMany({ where: filtro, orderBy: { createdAt: 'desc' }, include: { unit: LINHA } }),
-      this.banco.capture.groupBy({ by: ['batchId'], where: { batch: filtro }, _sum: { defectsCount: true } }),
-    ]);
-    const nomes = await nomesDosAutores(this.banco, lotes.map((l) => l.authorMatricula));
-    const defeitosPorLote = new Map(defeitos.map((d) => [d.batchId, d._sum.defectsCount ?? 0]));
-    return { batches: lotes.map((l) => loteResumido(l, nomes, defeitosPorLote.get(l.id) ?? 0)) };
+  private async listar(filtro: Prisma.BatchWhereInput) {
+    const lotes = await this.banco.batch.findMany({ where: filtro, orderBy: { createdAt: 'desc' }, include: LOTE_COMPLETO });
+    return { batches: lotes.map(loteResumido) };
   }
 
-  private async buscarDetalhe(filtro: { id: string; authorMatricula?: string }) {
-    const lote = await this.banco.batch.findFirst({ where: filtro, include: { captures: true, unit: LINHA } });
+  private async buscarDetalhe(filtro: { id: string; authorId?: string }) {
+    const lote = await this.banco.batch.findFirst({
+      where: filtro,
+      include: {
+        ...LOTE_COMPLETO,
+        captures: { orderBy: { filename: 'asc' }, select: { id: true, filename: true, sha256: true, defects: true } },
+      },
+    });
     if (!lote) throw new NotFoundException('Lote não encontrado');
-    const nomes = await nomesDosAutores(this.banco, [lote.authorMatricula]);
     return {
-      batch: loteResumido(lote, nomes, lote.captures.reduce((soma, c) => soma + c.defectsCount, 0)),
-      captures: lote.captures.map((c) => ({
-        id: c.id,
-        filename: c.filename,
-        is_valid: c.isValid,
-        original_uri: c.originalUri,
-        processed_uri: c.processedUri,
-        processed_areas_uri: c.processedAreasUri,
-        processed_pins_uri: c.processedPinsUri,
-        processed_shaft_uri: c.processedShaftUri,
-        defects_count: c.defectsCount,
-        // Mesmas chaves usadas pela revisão no frontend e nas correções do operador.
-        defects: {
-          missing: c.hasMissingPins,
-          extra: c.hasExtraPins,
-          wrongColor: c.hasWrongColorPins,
-          damaged: c.hasDamagedPins,
-          shaft: c.hasShaftDefects,
-          structure: c.hasStructureDamage,
-        },
-        corrections: c.corrections,
-      })),
+      batch: loteResumido(lote),
+      captures: lote.captures.map((c) => {
+        const resultado = resultadoDaCaptura(c.defects, lote.criteria);
+        return {
+          id: c.id,
+          filename: c.filename,
+          is_valid: resultado.aprovada,
+          ...this.urlsDaCaptura(lote.storageFolder, c),
+          defects_count: resultado.quantidade,
+          defects: resultado.defeitos,
+          corrections: resultado.correcoes.length ? resultado.correcoes : null,
+        };
+      }),
     };
   }
 }

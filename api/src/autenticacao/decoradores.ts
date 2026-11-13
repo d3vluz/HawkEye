@@ -10,7 +10,7 @@ export const LIBERADA_SEM_TROCA_DE_SENHA = 'liberadaSemTrocaDeSenha';
 export interface MembroDaSessao {
   id: string;
   name: string;
-  matricula: string | null;
+  matricula: string;
   email: string | null;
   githubUsername: string | null;
   role: MemberRole;

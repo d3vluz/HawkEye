@@ -1,6 +1,6 @@
 // Rotas de lotes: o funcionário registra, descarta e consulta os próprios; o admin consulta e apaga qualquer um.
 
-import { Body, Controller, Delete, Get, Module, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Module, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { MembroAtual, MembroDaSessao, Perfis } from '../autenticacao/decoradores';
 import { ConfiguracoesModule } from '../configuracoes/configuracoes.controller';
 import { NovoLote } from './dto';
@@ -26,30 +26,30 @@ export class LotesController {
   @Perfis('EMPLOYEE')
   @Get('mine')
   meus(@MembroAtual() membro: MembroDaSessao) {
-    return this.lotes.listarDoAutor(membro.matricula);
+    return this.lotes.listarDoAutor(membro.id);
   }
 
   @Perfis('EMPLOYEE')
   @Get('mine/:id')
-  meu(@Param('id') id: string, @MembroAtual() membro: MembroDaSessao) {
-    return this.lotes.detalharDoAutor(id, membro.matricula);
+  meu(@Param('id', ParseUUIDPipe) id: string, @MembroAtual() membro: MembroDaSessao) {
+    return this.lotes.detalharDoAutor(id, membro.id);
   }
 
   @Perfis('ADMIN')
   @Get()
-  todos(@Query('unitId') linhaId?: string) {
-    return this.lotes.listarTodos(linhaId || undefined);
+  todos(@Query('unitId', new ParseUUIDPipe({ optional: true })) linhaId?: string) {
+    return this.lotes.listarTodos(linhaId);
   }
 
   @Perfis('ADMIN')
   @Get(':id')
-  detalhe(@Param('id') id: string) {
+  detalhe(@Param('id', ParseUUIDPipe) id: string) {
     return this.lotes.detalhar(id);
   }
 
   @Perfis('ADMIN')
   @Delete(':id')
-  remover(@Param('id') id: string) {
+  remover(@Param('id', ParseUUIDPipe) id: string) {
     return this.lotes.remover(id);
   }
 }
